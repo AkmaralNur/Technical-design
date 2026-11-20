@@ -80,6 +80,7 @@
 | Бронирование без оплаты | Реальные платежи, возвраты денег, скидки |
 | Мои билеты и отмена | Внешние железнодорожные сервисы |
 | Админ-панель | Мобильное приложение |
+| **Дополнительно:** классы мест (эконом / бизнес), схема вагона, письма на email, скачивание билета в PDF, фильтры | |
 
 ---
 
@@ -109,9 +110,9 @@ TrainTix — это сайт, на котором пассажир ищет по
 
 | Для кого | Возможность |
 | --- | --- |
-| Гость | Регистрация, вход, поиск поездов, просмотр рейса и свободных мест |
-| Пассажир | Всё, что гость + бронирование, просмотр своих билетов, отмена билета, просмотр аккаунта |
-| Администратор | Станции, поезда, места, маршруты, расписание, цены, рейсы на даты, просмотр всех бронирований |
+| Гость | Регистрация, вход, поиск поездов с фильтрами, просмотр рейса, схемы вагона и свободных мест по классам |
+| Пассажир | Всё, что гость + бронирование, просмотр своих билетов с фильтрами, отмена билета, просмотр аккаунта, письма на email, скачивание билета в PDF |
+| Администратор | Станции, поезда, вагоны (класс и схема мест), места, маршруты, расписание, цены по классам, рейсы на даты, просмотр всех бронирований с фильтрами и выгрузкой |
 
 ### 2.4 Система в одной картинке
 
@@ -189,7 +190,31 @@ TrainTix — это сайт, на котором пассажир ищет по
 | FR-28 | Задавать время прибытия/отправления и создавать рейсы на даты | `/api/admin/routes`, `/api/admin/trips` |
 | FR-29 | Задавать цены между остановками | `/api/admin/routes/:id/fares` |
 | FR-30 | Смотреть все бронирования и их статусы | `/api/admin/tickets` |
-| FR-31 | Изменения не должны «молча» ломать подтверждённые билеты | Алгоритм 10.7 |
+| FR-31 | Изменения не должны «молча» ломать подтверждённые билеты | Алгоритм 10.8 |
+
+**Правила бронирования**
+
+| ID | Требование | Где реализовано |
+| --- | --- | --- |
+| FR-32 | Станции отправления и прибытия должны быть остановками выбранного рейса | Алгоритм 10.4, шаг 4 |
+| FR-33 | Станция отправления должна быть раньше станции прибытия | Алгоритмы 10.2, 10.4 |
+| FR-34 | Место закрепляется за пассажиром на **всём** участке билета (на всех отрезках от посадки до выхода) | Алгоритм 11.1 |
+| FR-35 | Бронирования на разные даты или разные рейсы не конфликтуют друг с другом | Ограничение `EXCLUDE` сравнивает только билеты одного рейса (`trip_id`), сценарий G в 11.5 |
+| FR-36 | Оплата не требуется, бронирование подтверждается сразу | Алгоритм 10.4 |
+| FR-37 | У билета только два статуса — «Подтверждён» и «Отменён»; после отправления поезда билет остаётся «Подтверждён» в истории | Раздел 10.7 |
+
+**Дополнительные возможности**
+
+| ID | Требование | Где реализовано |
+| --- | --- | --- |
+| FR-38 | Классы мест «Эконом» и «Бизнес» со своей ценой | Раздел 10.9 |
+| FR-39 | Схема расположения мест в вагоне (ряды, проход) | Раздел 10.10, 17.3 |
+| FR-40 | Письмо на email после бронирования | Раздел 10.11 |
+| FR-41 | Письмо на email после отмены билета, отмены рейса или изменения расписания | Раздел 10.11 |
+| FR-42 | Скачивание билета в PDF | Раздел 10.12 |
+| FR-43 | Фильтры и сортировка в поиске | Раздел 10.13 |
+| FR-44 | Фильтры в «Мои билеты» | Раздел 10.13 |
+| FR-45 | Фильтры и выгрузка в CSV для бронирований в админке | Раздел 10.13 |
 
 ### 3.2 Нефункциональные требования (кратко)
 
@@ -228,7 +253,10 @@ TrainTix — это сайт, на котором пассажир ищет по
 | Смотреть билеты | ❌ | 🔸 | ✅ (все) |
 | Отменить билет | ❌ | 🔸 | ✅ (при отмене рейса) |
 | Смотреть свой аккаунт | ❌ | ✅ | ✅ |
-| Управлять станциями, поездами, местами | ❌ | ❌ | ✅ |
+| Скачать билет в PDF | ❌ | 🔸 | ✅ |
+| Получать письма о брони и отмене | ❌ | ✅ | — |
+| Фильтры поиска и списков | ✅ | ✅ | ✅ |
+| Управлять станциями, поездами, вагонами, местами | ❌ | ❌ | ✅ |
 | Управлять маршрутами, ценами, рейсами | ❌ | ❌ | ✅ |
 
 ### 4.3 Как проверяются права
@@ -300,7 +328,7 @@ flowchart TD
                                              │ SQL (транзакции)
                                   ┌──────────▼──────────┐
                                   │  PostgreSQL 16      │
-                                  │  10 таблиц          │
+                                  │  13 таблиц          │
                                   └─────────────────────┘
 ```
 
@@ -355,6 +383,10 @@ flowchart TD
 | cors | Разрешённые источники запросов |
 | express-rate-limit | Ограничение частоты запросов (защита от подбора пароля) |
 | pino, pino-http | Логи |
+| nodemailer | Отправка писем |
+| pdfkit | Создание PDF-билета |
+| qrcode | QR-код в PDF-билете |
+| express-async-errors | Перехват ошибок в асинхронных обработчиках |
 | dotenv | Настройки из файла `.env` |
 
 ### 6.4 Инструменты
@@ -362,6 +394,7 @@ flowchart TD
 | Инструмент | Зачем |
 | --- | --- |
 | Docker, docker-compose | Запуск PostgreSQL и всего приложения одной командой |
+| Mailpit | Тестовый почтовый сервер: ловит письма при разработке |
 | Vitest | Unit и интеграционные тесты |
 | Supertest | Тесты API |
 | React Testing Library | Тесты компонентов |
@@ -390,12 +423,13 @@ flowchart TD
 | --- | --- | --- |
 | **auth** | Регистрация, вход, выход, текущий пользователь | `register`, `login`, `getMe` |
 | **stations** | Станции | `list`, `create`, `update` |
-| **trains** | Поезда и места | `createTrain`, `updateTrain`, `generateSeats`, `updateSeat` |
+| **trains** | Поезда, вагоны, места | `createTrain`, `updateTrain`, `addCarriage`, `updateCarriage`, `updateSeat` |
 | **routes** | Маршруты, остановки, цены | `createRoute`, `updateStops`, `setFares` |
 | **trips** | Рейсы на даты, поиск, места | `createTrips`, `search`, `getTrip`, `getSeatMap`, `updateTrip`, `cancelTrip` |
-| **tickets** | Бронирование, мои билеты, отмена | `bookTicket`, `listMyTickets`, `getMyTicket`, `cancelTicket` |
-| **admin** | Просмотр всех бронирований | `listAllTickets` |
+| **tickets** | Бронирование, мои билеты, отмена, PDF | `bookTicket`, `listMyTickets`, `getMyTicket`, `cancelTicket`, `getTicketPdf` |
+| **admin** | Просмотр всех бронирований, выгрузка | `listAllTickets`, `exportTicketsCsv` |
 | **audit** | Журнал действий | `log` |
+| **notifications** | Письма на email | `queueEmail`, `sendPendingEmails` |
 
 ### 7.3 Структура папок
 
@@ -429,7 +463,8 @@ traintix/
 │   │   │   ├── trips/
 │   │   │   ├── tickets/
 │   │   │   ├── admin/
-│   │   │   └── audit/
+│   │   │   ├── audit/
+│   │   │   └── notifications/      # письма: очередь + отправка (nodemailer)
 │   │   ├── middleware/
 │   │   │   ├── authenticate.ts     # проверка входа
 │   │   │   ├── requireRole.ts      # проверка роли
@@ -440,10 +475,11 @@ traintix/
 │   │   ├── utils/
 │   │   │   ├── AppError.ts         # класс ошибки
 │   │   │   ├── ticketNumber.ts     # генерация номера билета
+│   │   │   ├── ticketPdf.ts        # PDF-билет (pdfkit + QR-код)
 │   │   │   └── logger.ts           # логгер
 │   │   ├── config.ts               # чтение .env
 │   │   ├── app.ts                  # сборка Express
-│   │   └── server.ts               # запуск сервера
+│   │   └── server.ts               # запуск сервера + отправщика писем
 │   ├── prisma/
 │   │   ├── schema.prisma
 │   │   ├── migrations/
@@ -520,8 +556,8 @@ app.use(errorHandler);                                        // всегда п
 
 | Группа | Таблицы | Что хранит |
 | --- | --- | --- |
-| Пользователи | `users`, `audit_log` | Кто пользуется системой и что делал админ |
-| Справочники и шаблоны | `stations`, `trains`, `seats`, `routes`, `route_stops`, `fares` | Станции, поезда, места, маршрут «в общем виде», цены |
+| Пользователи и служебные | `users`, `audit_log`, `email_outbox` | Кто пользуется системой, что делал админ, какие письма нужно отправить |
+| Справочники и шаблоны | `stations`, `trains`, `carriages`, `seats`, `routes`, `route_stops`, `fares` | Станции, поезда, вагоны (класс и схема), места, маршрут «в общем виде», цены по классам |
 | Рейсы и билеты | `trips`, `trip_stops`, `tickets` | Конкретные поездки на конкретные даты и проданные билеты |
 
 **Почему маршрут и рейс — разные вещи?**
@@ -539,7 +575,10 @@ app.use(errorHandler);                                        // всегда п
 erDiagram
     USERS ||--o{ TICKETS : "покупает"
     USERS ||--o{ AUDIT_LOG : "совершает действия"
-    TRAINS ||--o{ SEATS : "имеет места"
+    USERS ||--o{ EMAIL_OUTBOX : "получает письма"
+    TICKETS ||--o{ EMAIL_OUTBOX : "письма о билете"
+    TRAINS ||--o{ CARRIAGES : "состоит из вагонов"
+    CARRIAGES ||--o{ SEATS : "имеет места"
     TRAINS ||--o{ ROUTES : "ходит по маршрутам"
     TRAINS ||--o{ TRIPS : "выполняет рейсы"
     ROUTES ||--|{ ROUTE_STOPS : "состоит из остановок"
@@ -573,12 +612,22 @@ erDiagram
         varchar name
         boolean is_active
     }
-    SEATS {
+    CARRIAGES {
         bigint id PK
         bigint train_id FK
         smallint carriage_no "номер вагона"
+        enum seat_class "ECONOMY или BUSINESS"
+        smallint rows_count "рядов"
+        varchar layout "AB_CD"
+        boolean is_active
+    }
+    SEATS {
+        bigint id PK
+        bigint train_id FK
+        smallint carriage_no FK
+        smallint row_no "ряд 12"
+        char seat_letter "A"
         varchar seat_label "12A"
-        varchar seat_class "необязательно"
         boolean is_active
     }
     ROUTES {
@@ -602,6 +651,7 @@ erDiagram
         bigint route_id FK
         smallint from_stop_order
         smallint to_stop_order
+        enum seat_class "ECONOMY или BUSINESS"
         numeric price
         char currency "EUR"
     }
@@ -628,6 +678,7 @@ erDiagram
         bigint seat_id FK
         smallint from_stop_order
         smallint to_stop_order
+        enum seat_class
         numeric price
         enum status "CONFIRMED или CANCELLED"
         timestamptz created_at
@@ -642,6 +693,17 @@ erDiagram
         jsonb details
         timestamptz created_at
     }
+    EMAIL_OUTBOX {
+        bigint id PK
+        varchar type "BOOKING_CONFIRMED..."
+        varchar to_email
+        bigint user_id FK
+        bigint ticket_id FK
+        jsonb payload
+        enum status "PENDING SENT FAILED"
+        smallint attempts
+        timestamptz next_attempt_at
+    }
 ```
 
 ### 8.3 Та же схема текстом (связи)
@@ -650,9 +712,9 @@ erDiagram
   СПРАВОЧНИКИ И ШАБЛОНЫ                          РЕЙСЫ И БИЛЕТЫ
   ─────────────────────                          ──────────────
 
-  ┌──────────┐ 1      N ┌──────────┐
-  │  trains  │─────────►│  seats   │──────────────────────────┐
-  └────┬─────┘          └──────────┘                          │ 1
+  ┌──────────┐ 1   N ┌───────────┐ 1   N ┌──────────┐
+  │  trains  │──────►│ carriages │──────►│  seats   │─────────┐
+  └────┬─────┘       └───────────┘       └──────────┘         │ 1
        │ 1                                                    │
        │ N                                                    │ N
   ┌────▼─────┐ 1      N ┌──────────┐ 1      N ┌──────────┐ 1  ▼  N ┌──────────┐
@@ -676,13 +738,16 @@ erDiagram
   + from_stop_order / to_stop_order → номера остановок в trip_stops этого рейса
 
 Кратко:
-  trains   1 ── N  seats         (у поезда много мест)
+  trains   1 ── N  carriages     (у поезда несколько вагонов)
+  carriages 1 ── N seats         (в вагоне много мест; класс задан у вагона)
   trains   1 ── N  routes        (поезд может ходить по нескольким маршрутам)
   routes   1 ── N  route_stops   (маршрут = список остановок)
   routes   1 ── N  fares         (цены между парами остановок)
   routes   1 ── N  trips         (маршрут на каждую дату = рейс)
   trains   1 ── N  trips         (рейс выполняет конкретный поезд)
   users    1 ── N  audit_log     (кто что сделал)
+  users    1 ── N  email_outbox  (письма пользователю)
+  tickets  1 ── N  email_outbox  (письма о билете: бронь, отмена)
   trips    1 ── N  trip_stops    (расписание рейса с точным временем)
   trips    1 ── N  tickets       (билеты на рейс)
   seats    1 ── N  tickets       (одно место — много билетов на разные участки/даты)
@@ -723,18 +788,34 @@ erDiagram
 | name | VARCHAR(100) | | Название («Moravia Express») |
 | is_active | BOOLEAN | ✅ | Активен ли поезд |
 
+#### Таблица `carriages` — вагоны
+
+| Поле | Тип | Обязательно | Описание |
+| --- | --- | :---: | --- |
+| id | BIGSERIAL | ✅ | PK |
+| train_id | BIGINT | ✅ | FK → `trains.id` |
+| carriage_no | SMALLINT | ✅ | Номер вагона в поезде (> 0) |
+| seat_class | seat_class | ✅ | Класс всего вагона: `ECONOMY` (Эконом) или `BUSINESS` (Бизнес) |
+| rows_count | SMALLINT | ✅ | Сколько рядов в вагоне |
+| layout | VARCHAR(10) | ✅ | Схема ряда: буквы мест и `_` для прохода. `AB_CD` = 2 места, проход, 2 места |
+| is_active | BOOLEAN | ✅ | Используется ли вагон |
+
+Уникальность: `(train_id, carriage_no)` — в поезде нет двух вагонов с одним номером.
+
 #### Таблица `seats` — места в поезде
 
 | Поле | Тип | Обязательно | Описание |
 | --- | --- | :---: | --- |
 | id | BIGSERIAL | ✅ | PK |
 | train_id | BIGINT | ✅ | FK → `trains.id` |
-| carriage_no | SMALLINT | ✅ | Номер вагона (> 0) |
-| seat_label | VARCHAR(10) | ✅ | Номер места (`12A`) |
-| seat_class | VARCHAR(20) | | Класс (на будущее) |
+| carriage_no | SMALLINT | ✅ | Номер вагона. Вместе с `train_id` — ссылка на `carriages` |
+| row_no | SMALLINT | ✅ | Номер ряда (`12`) — для схемы вагона |
+| seat_letter | CHAR(1) | ✅ | Буква места в ряду (`A`) — для схемы вагона |
+| seat_label | VARCHAR(10) | ✅ | Номер места, который видит пассажир (`12A`) |
 | is_active | BOOLEAN | ✅ | Продаётся ли место. Места **не удаляются**, только выключаются |
 
 Уникальность: `(train_id, carriage_no, seat_label)` — в одном вагоне не может быть двух мест 12A.
+Места создаются **автоматически** при добавлении вагона (алгоритм 10.10). Класс места = класс его вагона.
 
 #### Таблица `routes` — маршруты (шаблон)
 
@@ -774,11 +855,19 @@ erDiagram
 | route_id | BIGINT | ✅ | FK → `routes.id` |
 | from_stop_order | SMALLINT | ✅ | Откуда (номер остановки) |
 | to_stop_order | SMALLINT | ✅ | Куда (номер остановки), всегда больше `from` |
+| seat_class | seat_class | ✅ | Для какого класса цена: `ECONOMY` или `BUSINESS` |
 | price | NUMERIC(10,2) | ✅ | Цена (≥ 0) |
 | currency | CHAR(3) | ✅ | Валюта (`EUR`) |
 
-Пример для T101: `0→1 = 19.00`, `1→2 = 15.00`, `0→2 = 29.00`.
-Для маршрута из N остановок нужно задать N·(N−1)/2 цен (для 3 остановок — 3 цены).
+Пример для T101:
+
+| Участок | Эконом | Бизнес |
+| --- | --- | --- |
+| Prague → Brno (0→1) | 19.00 | 35.00 |
+| Brno → Vienna (1→2) | 15.00 | 28.00 |
+| Prague → Vienna (0→2) | 29.00 | 55.00 |
+
+Для маршрута из N остановок нужно задать N·(N−1)/2 цен **на каждый класс**, который есть в поезде (3 остановки, 2 класса → 6 цен).
 
 #### Таблица `trips` — рейсы (конкретная дата)
 
@@ -824,6 +913,7 @@ erDiagram
 | train_number | VARCHAR(20) | ✅ | Копия номера поезда |
 | carriage_no | SMALLINT | ✅ | Копия номера вагона |
 | seat_label | VARCHAR(10) | ✅ | Копия номера места |
+| seat_class | seat_class | ✅ | Копия класса места |
 | from_station_name | VARCHAR(100) | ✅ | Копия названия станции посадки |
 | to_station_name | VARCHAR(100) | ✅ | Копия названия станции выхода |
 | created_at | TIMESTAMPTZ | ✅ | Когда куплен |
@@ -844,6 +934,23 @@ erDiagram
 | details | JSONB | | Подробности (что было / что стало) |
 | created_at | TIMESTAMPTZ | ✅ | Когда |
 
+#### Таблица `email_outbox` — очередь писем
+
+| Поле | Тип | Обязательно | Описание |
+| --- | --- | :---: | --- |
+| id | BIGSERIAL | ✅ | PK |
+| type | VARCHAR(30) | ✅ | Тип письма: `BOOKING_CONFIRMED`, `TICKET_CANCELLED`, `TRIP_CANCELLED`, `SCHEDULE_CHANGED` |
+| to_email | VARCHAR(255) | ✅ | Кому |
+| user_id | BIGINT | ✅ | FK → `users.id` |
+| ticket_id | BIGINT | | FK → `tickets.id` |
+| payload | JSONB | ✅ | Данные для текста письма (номер билета, поезд, станции, время…) |
+| status | email_status | ✅ | `PENDING` (ждёт), `SENT` (отправлено), `FAILED` (не удалось) |
+| attempts | SMALLINT | ✅ | Сколько раз пытались отправить |
+| next_attempt_at | TIMESTAMPTZ | ✅ | Когда пробовать в следующий раз |
+| last_error | TEXT | | Текст последней ошибки |
+| created_at | TIMESTAMPTZ | ✅ | Когда поставлено в очередь |
+| sent_at | TIMESTAMPTZ | | Когда отправлено |
+
 ### 8.5 Ограничения (правила, которые проверяет сама база)
 
 | Таблица | Ограничение | Зачем |
@@ -851,11 +958,15 @@ erDiagram
 | users | `email UNIQUE` | Один email — один аккаунт |
 | stations | `code UNIQUE` | Без дублей станций |
 | trains | `number UNIQUE` | Без дублей поездов |
+| carriages | `UNIQUE (train_id, carriage_no)` | Без дублей вагонов |
+| carriages | `CHECK (layout ~ '^[A-Z_]+$')` | Схема ряда — только буквы и `_` |
 | seats | `UNIQUE (train_id, carriage_no, seat_label)` | Без дублей мест |
+| seats | `FK (train_id, carriage_no) → carriages` | Место всегда в существующем вагоне |
 | route_stops | `UNIQUE (route_id, stop_order)` | Один порядковый номер — одна остановка |
 | route_stops | `UNIQUE (route_id, station_id)` | Станция не повторяется в маршруте |
 | fares | `CHECK (from_stop_order < to_stop_order)` | Цена только «вперёд» |
 | fares | `CHECK (price >= 0)` | Нет отрицательных цен |
+| fares | `UNIQUE (route_id, from_stop_order, to_stop_order, seat_class)` | Одна цена на участок и класс |
 | trips | `UNIQUE (route_id, service_date)` | Нет двух одинаковых рейсов |
 | tickets | `ticket_number UNIQUE` | Уникальный номер билета |
 | tickets | `CHECK (from_stop_order < to_stop_order)` | Нельзя ехать назад |
@@ -869,6 +980,8 @@ erDiagram
 | `trips (service_date, status)` | Отбор рейсов по дате |
 | `tickets (trip_id, seat_id)` | Проверка занятости мест |
 | `tickets (user_id, created_at DESC)` | Список «Мои билеты» |
+| `tickets (status, created_at DESC)` | Список бронирований в админке с фильтрами |
+| `email_outbox (status, next_attempt_at)` | Поиск писем, которые пора отправить |
 | GiST-индекс от `EXCLUDE` | Проверка пересечений (создаётся автоматически) |
 
 ### 8.7 Полный SQL создания базы
@@ -880,6 +993,8 @@ CREATE EXTENSION IF NOT EXISTS btree_gist;
 CREATE TYPE user_role     AS ENUM ('PASSENGER', 'ADMIN');
 CREATE TYPE trip_status   AS ENUM ('SCHEDULED', 'CANCELLED');
 CREATE TYPE ticket_status AS ENUM ('CONFIRMED', 'CANCELLED');
+CREATE TYPE seat_class    AS ENUM ('ECONOMY', 'BUSINESS');
+CREATE TYPE email_status  AS ENUM ('PENDING', 'SENT', 'FAILED');
 
 CREATE TABLE users (
   id            BIGSERIAL PRIMARY KEY,
@@ -906,14 +1021,27 @@ CREATE TABLE trains (
   is_active BOOLEAN NOT NULL DEFAULT true
 );
 
-CREATE TABLE seats (
+CREATE TABLE carriages (
   id          BIGSERIAL PRIMARY KEY,
   train_id    BIGINT NOT NULL REFERENCES trains(id),
   carriage_no SMALLINT NOT NULL CHECK (carriage_no > 0),
-  seat_label  VARCHAR(10) NOT NULL,
-  seat_class  VARCHAR(20),
+  seat_class  seat_class NOT NULL DEFAULT 'ECONOMY',
+  rows_count  SMALLINT NOT NULL CHECK (rows_count > 0),
+  layout      VARCHAR(10) NOT NULL CHECK (layout ~ '^[A-Z_]+$'),  -- 'AB_CD'
   is_active   BOOLEAN NOT NULL DEFAULT true,
-  UNIQUE (train_id, carriage_no, seat_label)
+  UNIQUE (train_id, carriage_no)
+);
+
+CREATE TABLE seats (
+  id          BIGSERIAL PRIMARY KEY,
+  train_id    BIGINT NOT NULL REFERENCES trains(id),
+  carriage_no SMALLINT NOT NULL,
+  row_no      SMALLINT NOT NULL CHECK (row_no > 0),
+  seat_letter CHAR(1)  NOT NULL,
+  seat_label  VARCHAR(10) NOT NULL,                                -- '12A'
+  is_active   BOOLEAN NOT NULL DEFAULT true,
+  UNIQUE (train_id, carriage_no, seat_label),
+  FOREIGN KEY (train_id, carriage_no) REFERENCES carriages (train_id, carriage_no)
 );
 
 CREATE TABLE routes (
@@ -943,10 +1071,11 @@ CREATE TABLE fares (
   route_id        BIGINT NOT NULL REFERENCES routes(id) ON DELETE CASCADE,
   from_stop_order SMALLINT NOT NULL,
   to_stop_order   SMALLINT NOT NULL,
+  seat_class      seat_class NOT NULL DEFAULT 'ECONOMY',
   price           NUMERIC(10,2) NOT NULL CHECK (price >= 0),
   currency        CHAR(3) NOT NULL DEFAULT 'EUR',
   CHECK (from_stop_order < to_stop_order),
-  UNIQUE (route_id, from_stop_order, to_stop_order)
+  UNIQUE (route_id, from_stop_order, to_stop_order, seat_class)
 );
 
 CREATE TABLE trips (
@@ -984,6 +1113,7 @@ CREATE TABLE tickets (
   train_number      VARCHAR(20)  NOT NULL,
   carriage_no       SMALLINT     NOT NULL,
   seat_label        VARCHAR(10)  NOT NULL,
+  seat_class        seat_class   NOT NULL,
   from_station_name VARCHAR(100) NOT NULL,
   to_station_name   VARCHAR(100) NOT NULL,
   created_at        TIMESTAMPTZ  NOT NULL DEFAULT now(),
@@ -1010,10 +1140,27 @@ CREATE TABLE audit_log (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE email_outbox (
+  id              BIGSERIAL PRIMARY KEY,
+  type            VARCHAR(30)  NOT NULL,
+  to_email        VARCHAR(255) NOT NULL,
+  user_id         BIGINT NOT NULL REFERENCES users(id),
+  ticket_id       BIGINT REFERENCES tickets(id),
+  payload         JSONB NOT NULL,
+  status          email_status NOT NULL DEFAULT 'PENDING',
+  attempts        SMALLINT NOT NULL DEFAULT 0,
+  next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_error      TEXT,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  sent_at         TIMESTAMPTZ
+);
+
 CREATE INDEX idx_trip_stops_station ON trip_stops (station_id, trip_id);
 CREATE INDEX idx_trips_date         ON trips (service_date, status);
 CREATE INDEX idx_tickets_trip_seat  ON tickets (trip_id, seat_id);
 CREATE INDEX idx_tickets_user       ON tickets (user_id, created_at DESC);
+CREATE INDEX idx_tickets_status     ON tickets (status, created_at DESC);
+CREATE INDEX idx_outbox_pending     ON email_outbox (status, next_attempt_at);
 ```
 
 > **Важно про Prisma.** Prisma не умеет описывать `EXCLUDE`. Поэтому после `prisma migrate dev --create-only`
@@ -1024,13 +1171,17 @@ CREATE INDEX idx_tickets_user       ON tickets (user_id, created_at DESC);
 ```
 stations:     1 PRG Prague | 2 BRN Brno | 3 VIE Vienna
 trains:       1 T101
-seats:        вагоны 1–3, в каждом места 1A,1B,1C,1D … 10A–10D  (120 мест)
+carriages:    1: BUSINESS, 8 рядов, 'A_BC'  (24 места)
+              2: ECONOMY, 15 рядов, 'AB_CD' (60 мест)
+              3: ECONOMY, 15 рядов, 'AB_CD' (60 мест)
+seats:        создаются автоматически: 1A,1B,1C … 15A–15D  (всего 144 места)
 routes:       1 "Prague – Vienna", train 1, departure_time 07:00
 route_stops:  (0, Prague, —, 0) (1, Brno, 150, 155) (2, Vienna, 240, —)
-fares:        0→1 19.00 | 1→2 15.00 | 0→2 29.00
+fares:        ECONOMY  0→1 19.00 | 1→2 15.00 | 0→2 29.00
+              BUSINESS 0→1 35.00 | 1→2 28.00 | 0→2 55.00
 trips:        42  route 1, 2026-12-05, SCHEDULED
 trip_stops:   (42,0,Prague,—,07:00) (42,1,Brno,09:30,09:35) (42,2,Vienna,11:00,—)
-tickets:      901 TTX-7F3K9Q2M, user 5, trip 42, seat 12A, 0→1, 19.00, CONFIRMED
+tickets:      901 TTX-7F3K9Q2M, user 5, trip 42, вагон 3, seat 12A, ECONOMY, 0→1, 19.00, CONFIRMED
 ```
 
 ---
@@ -1072,8 +1223,8 @@ tickets:      901 TTX-7F3K9Q2M, user 5, trip 42, seat 12A, 0→1, 19.00, CONFIRM
 | 16 | GET | `/api/admin/trains` | Админ | Все поезда |
 | 17 | POST | `/api/admin/trains` | Админ | Создать поезд |
 | 18 | PATCH | `/api/admin/trains/:id` | Админ | Изменить поезд |
-| 19 | GET | `/api/admin/trains/:id/seats` | Админ | Места поезда |
-| 20 | POST | `/api/admin/trains/:id/seats/generate` | Админ | Создать места пачкой |
+| 19 | GET | `/api/admin/trains/:id/carriages` | Админ | Вагоны и места поезда |
+| 20 | POST | `/api/admin/trains/:id/carriages` | Админ | Добавить вагон (класс + схема) — места создаются автоматически |
 | 21 | PATCH | `/api/admin/seats/:id` | Админ | Включить/выключить место |
 | 22 | GET | `/api/admin/routes` | Админ | Все маршруты |
 | 23 | POST | `/api/admin/routes` | Админ | Создать маршрут с остановками |
@@ -1084,7 +1235,10 @@ tickets:      901 TTX-7F3K9Q2M, user 5, trip 42, seat 12A, 0→1, 19.00, CONFIRM
 | 28 | POST | `/api/admin/trips` | Админ | Создать рейсы на даты |
 | 29 | PATCH | `/api/admin/trips/:id/schedule` | Админ | Изменить время рейса |
 | 30 | POST | `/api/admin/trips/:id/cancel` | Админ | Отменить рейс |
-| 31 | GET | `/api/admin/tickets` | Админ | Все бронирования |
+| 31 | GET | `/api/admin/tickets` | Админ | Все бронирования (с фильтрами) |
+| 32 | GET | `/api/tickets/:id/pdf` | Владелец, Админ | Скачать билет в PDF |
+| 33 | GET | `/api/admin/tickets/export` | Админ | Выгрузка бронирований в CSV (те же фильтры) |
+| 34 | PATCH | `/api/admin/carriages/:id` | Админ | Изменить класс вагона, выключить вагон |
 
 ### 9.3 Аутентификация
 
@@ -1143,6 +1297,12 @@ tickets:      901 TTX-7F3K9Q2M, user 5, trip 42, seat 12A, 0→1, 19.00, CONFIRM
 | from | ✅ | ID станции отправления |
 | to | ✅ | ID станции прибытия |
 | date | ✅ | Дата отправления со станции `from` |
+| departAfter | | Фильтр: отправление не раньше (`08:00`) |
+| departBefore | | Фильтр: отправление не позже (`18:00`) |
+| seatClass | | Фильтр: только `ECONOMY` или только `BUSINESS` |
+| maxPrice | | Фильтр: цена не больше (`30.00`) |
+| onlyAvailable | | Фильтр: `true` — только поезда со свободными местами |
+| sort | | Сортировка: `departure` (по умолчанию), `price`, `duration` |
 
 Ответ `200`:
 
@@ -1155,8 +1315,12 @@ tickets:      901 TTX-7F3K9Q2M, user 5, trip 42, seat 12A, 0→1, 19.00, CONFIRM
       "from": { "stationId": 1, "name": "Prague", "stopOrder": 0, "departureAt": "2026-12-05T06:00:00Z" },
       "to":   { "stationId": 2, "name": "Brno",   "stopOrder": 1, "arrivalAt":   "2026-12-05T08:30:00Z" },
       "durationMinutes": 150,
-      "price": { "amount": "19.00", "currency": "EUR" },
-      "freeSeats": 119,
+      "minPrice": { "amount": "19.00", "currency": "EUR" },
+      "classes": [
+        { "seatClass": "ECONOMY",  "price": { "amount": "19.00", "currency": "EUR" }, "freeSeats": 119 },
+        { "seatClass": "BUSINESS", "price": { "amount": "35.00", "currency": "EUR" }, "freeSeats": 24 }
+      ],
+      "freeSeats": 143,
       "hasSeats": true
     }
   ]
@@ -1184,7 +1348,10 @@ tickets:      901 TTX-7F3K9Q2M, user 5, trip 42, seat 12A, 0→1, 19.00, CONFIRM
     { "stopOrder": 1, "stationId": 2, "name": "Brno",   "arrivalAt": "2026-12-05T08:30:00Z", "departureAt": "2026-12-05T08:35:00Z" },
     { "stopOrder": 2, "stationId": 3, "name": "Vienna", "arrivalAt": "2026-12-05T10:00:00Z", "departureAt": null }
   ],
-  "selected": { "from": 0, "to": 1, "price": { "amount": "19.00", "currency": "EUR" } }
+  "selected": { "from": 0, "to": 1, "prices": [
+    { "seatClass": "ECONOMY",  "amount": "19.00", "currency": "EUR" },
+    { "seatClass": "BUSINESS", "amount": "35.00", "currency": "EUR" }
+  ] }
 }
 ```
 
@@ -1202,14 +1369,20 @@ tickets:      901 TTX-7F3K9Q2M, user 5, trip 42, seat 12A, 0→1, 19.00, CONFIRM
   "carriages": [
     {
       "carriageNo": 1,
+      "seatClass": "BUSINESS",
+      "price": { "amount": "35.00", "currency": "EUR" },
+      "rowsCount": 8,
+      "layout": "A_BC",
       "seats": [
-        { "seatId": 101, "label": "1A", "available": true },
-        { "seatId": 102, "label": "1B", "available": false }
+        { "seatId": 101, "label": "1A", "row": 1, "letter": "A", "available": true },
+        { "seatId": 102, "label": "1B", "row": 1, "letter": "B", "available": false }
       ]
     }
   ]
 }
 ```
+
+По `rowsCount` и `layout` сайт рисует схему вагона (алгоритм 10.10).
 
 Ошибки: `404 NOT_FOUND`, `400 INVALID_JOURNEY`.
 
@@ -1237,7 +1410,7 @@ tickets:      901 TTX-7F3K9Q2M, user 5, trip 42, seat 12A, 0→1, 19.00, CONFIRM
   "date": "2026-12-05",
   "from": { "name": "Prague", "departureAt": "2026-12-05T06:00:00Z" },
   "to":   { "name": "Brno",   "arrivalAt":   "2026-12-05T08:30:00Z" },
-  "seat": { "carriageNo": 3, "label": "12A" },
+  "seat": { "carriageNo": 3, "label": "12A", "seatClass": "ECONOMY" },
   "price": { "amount": "19.00", "currency": "EUR" },
   "displayStatus": "UPCOMING",
   "canCancel": true,
@@ -1260,7 +1433,13 @@ tickets:      901 TTX-7F3K9Q2M, user 5, trip 42, seat 12A, 0→1, 19.00, CONFIRM
 
 #### 10. `GET /api/tickets?status=upcoming`
 
-`status` = `upcoming` | `completed` | `cancelled` (необязательно — без него все). Плюс `page`, `limit`.
+| Параметр | Описание |
+| --- | --- |
+| status | `upcoming` / `completed` / `cancelled` (без него — все) |
+| dateFrom, dateTo | Фильтр по дате поездки |
+| q | Поиск по номеру билета или названию станции |
+| sort | `date_asc` (по умолчанию для предстоящих), `date_desc` |
+| page, limit | Страницы |
 
 Ответ `200`: `{ "items": [ …билеты как в п.9… ], "page": 1, "total": 3 }`
 
@@ -1272,6 +1451,17 @@ tickets:      901 TTX-7F3K9Q2M, user 5, trip 42, seat 12A, 0→1, 19.00, CONFIRM
 
 Ответ `200`: билет со `"status": "CANCELLED"`, `"cancelledAt": "…"`.
 Ошибки: `404 NOT_FOUND`, `409 ALREADY_CANCELLED`, `409 ALREADY_DEPARTED`.
+
+#### 32. `GET /api/tickets/:id/pdf` — скачать билет
+
+Ответ `200` — файл PDF:
+
+```
+Content-Type: application/pdf
+Content-Disposition: attachment; filename="TTX-7F3K9Q2M.pdf"
+```
+
+Пассажир может скачать только свой билет, админ — любой. Чужой → `404 NOT_FOUND`. Подробно — 10.12.
 
 ### 9.6 Администратор
 
@@ -1290,13 +1480,22 @@ tickets:      901 TTX-7F3K9Q2M, user 5, trip 42, seat 12A, 0→1, 19.00, CONFIRM
 { "number": "T101", "name": "Moravia Express" }
 ```
 
-#### 20. `POST /api/admin/trains/:id/seats/generate` — создать места пачкой
+#### 20. `POST /api/admin/trains/:id/carriages` — добавить вагон
 
 ```json
-{ "carriages": 3, "rows": 10, "letters": ["A", "B", "C", "D"] }
+{ "carriageNo": 2, "seatClass": "ECONOMY", "rowsCount": 15, "layout": "AB_CD" }
 ```
 
-Создаст 3 × 10 × 4 = 120 мест: `1A…10D` в вагонах 1–3. Уже существующие места пропускаются.
+Создаст вагон и сразу 15 × 4 = 60 мест: `1A, 1B, 1C, 1D … 15D` (алгоритм 10.10).
+Ответ `201`: вагон + список мест. Ошибки: `400 VALIDATION_ERROR`, `409 DUPLICATE` (вагон с таким номером уже есть).
+
+#### 34. `PATCH /api/admin/carriages/:id`
+
+```json
+{ "seatClass": "BUSINESS", "isActive": true }
+```
+
+Если в вагоне есть будущие подтверждённые билеты — изменить класс или выключить вагон нельзя: `409 HAS_CONFIRMED_TICKETS`.
 
 #### 21. `PATCH /api/admin/seats/:id`
 
@@ -1332,9 +1531,12 @@ tickets:      901 TTX-7F3K9Q2M, user 5, trip 42, seat 12A, 0→1, 19.00, CONFIRM
 {
   "currency": "EUR",
   "fares": [
-    { "from": 0, "to": 1, "price": "19.00" },
-    { "from": 1, "to": 2, "price": "15.00" },
-    { "from": 0, "to": 2, "price": "29.00" }
+    { "from": 0, "to": 1, "seatClass": "ECONOMY",  "price": "19.00" },
+    { "from": 1, "to": 2, "seatClass": "ECONOMY",  "price": "15.00" },
+    { "from": 0, "to": 2, "seatClass": "ECONOMY",  "price": "29.00" },
+    { "from": 0, "to": 1, "seatClass": "BUSINESS", "price": "35.00" },
+    { "from": 1, "to": 2, "seatClass": "BUSINESS", "price": "28.00" },
+    { "from": 0, "to": 2, "seatClass": "BUSINESS", "price": "55.00" }
   ]
 }
 ```
@@ -1366,9 +1568,25 @@ tickets:      901 TTX-7F3K9Q2M, user 5, trip 42, seat 12A, 0→1, 19.00, CONFIRM
 
 Все подтверждённые билеты рейса становятся `CANCELLED` (`cancelled_by = ADMIN`).
 
-#### 31. `GET /api/admin/tickets?tripId=&status=&date=&email=`
+#### 31. `GET /api/admin/tickets` — все бронирования
+
+| Параметр | Описание |
+| --- | --- |
+| status | `CONFIRMED` / `CANCELLED` |
+| tripId | Конкретный рейс |
+| trainNumber | Номер поезда (`T101`) |
+| dateFrom, dateTo | Дата поездки |
+| stationId | Билеты, где эта станция — посадка или выход |
+| email | Email пассажира (поиск по части) |
+| ticketNumber | Номер билета |
+| sort | `created_desc` (по умолчанию), `departure_asc` |
+| page, limit | Страницы |
 
 Ответ `200`: `{ "items": [ { …билет…, "userEmail": "anna@example.com" } ], "page": 1, "total": 57 }`
+
+#### 33. `GET /api/admin/tickets/export`
+
+Те же параметры, что у п. 31. Ответ — файл `bookings.csv` (`Content-Type: text/csv`), колонки: номер билета, статус, пассажир, email, поезд, дата, откуда, куда, вагон, место, класс, цена, дата покупки.
 
 ### 9.7 Формат ошибки
 
@@ -1417,7 +1635,7 @@ flowchart TD
 
 Шаги:
 
-1. Проверить, что маршрут активен и для всех пар остановок заданы цены.
+1. Проверить, что маршрут активен и для всех пар остановок заданы цены **для каждого класса мест, который есть в поезде**.
 2. Для каждой даты `D` от `dateFrom` до `dateTo` (если день недели подходит):
    1. Если рейс `(route_id, D)` уже есть — пропустить.
    2. Создать запись в `trips`.
@@ -1452,11 +1670,14 @@ flowchart TD
 2. Берём все рейсы, у которых в `trip_stops` есть **обе** станции.
 3. Оставляем только те, где станция `from` идёт **раньше** станции `to` (`from.stop_order < to.stop_order`). Так поезд Vienna → Prague не попадёт в выдачу, если поезд едет Prague → Vienna (сценарий F).
 4. Оставляем рейсы, у которых **поезд уходит со станции `from` в выбранную дату** (по местному времени станции), статус `SCHEDULED`, и время отправления ещё не прошло.
-5. Для каждого рейса считаем:
-   - цену — из `fares` по паре `(from_stop_order, to_stop_order)`;
+5. Для каждого рейса и **каждого класса** (Эконом, Бизнес) считаем:
+   - цену — из `fares` по `(from_stop_order, to_stop_order, seat_class)`;
    - длительность — `arrival_at(to) − departure_at(from)`;
-   - сколько свободных мест на этом участке (алгоритм 11).
-6. Сортируем по времени отправления.
+   - сколько свободных мест этого класса на участке (алгоритм 11).
+6. Применяем фильтры, если они переданы (время отправления, класс, максимальная цена) — прямо в SQL.
+7. Сервис собирает строки одного рейса вместе: список классов, минимальная цена («от 19.00»), общее число свободных мест.
+8. Если `onlyAvailable = true` — убираем рейсы без свободных мест.
+9. Сортируем: по времени отправления (по умолчанию), по цене (`minPrice`) или по длительности.
 
 SQL:
 
@@ -1468,9 +1689,11 @@ SELECT t.id                    AS trip_id,
        fs.departure_at,
        ts.arrival_at,
        EXTRACT(EPOCH FROM (ts.arrival_at - fs.departure_at)) / 60 AS duration_min,
-       f.price, f.currency,
+       f.seat_class, f.price, f.currency,
        (SELECT COUNT(*) FROM seats s
-         WHERE s.train_id = t.train_id AND s.is_active
+          JOIN carriages c ON c.train_id = s.train_id AND c.carriage_no = s.carriage_no
+         WHERE s.train_id = t.train_id AND s.is_active AND c.is_active
+           AND c.seat_class = f.seat_class                         -- места этого класса
            AND NOT EXISTS (
              SELECT 1 FROM tickets k
               WHERE k.trip_id = t.id AND k.seat_id = s.id
@@ -1490,12 +1713,19 @@ WHERE t.status = 'SCHEDULED'
   AND fs.stop_order < ts.stop_order                               -- правильное направление
   AND (fs.departure_at AT TIME ZONE sf.timezone)::date = $3       -- дата по местному времени
   AND fs.departure_at > now()                                     -- ещё не ушёл
-ORDER BY fs.departure_at;
+  -- необязательные фильтры (NULL = фильтр не задан)
+  AND ($4::seat_class IS NULL OR f.seat_class = $4)                                   -- класс
+  AND ($5::numeric    IS NULL OR f.price <= $5)                                       -- макс. цена
+  AND ($6::time       IS NULL OR (fs.departure_at AT TIME ZONE sf.timezone)::time >= $6) -- не раньше
+  AND ($7::time       IS NULL OR (fs.departure_at AT TIME ZONE sf.timezone)::time <= $7) -- не позже
+ORDER BY fs.departure_at, f.seat_class;
 ```
+
+Результат — одна строка на «рейс + класс». Сервис объединяет строки одного рейса в одну карточку (шаг 7).
 
 ### 10.3 Алгоритм: расчёт цены
 
-1. Цена берётся из таблицы `fares` по `(route_id, from_stop_order, to_stop_order)`.
+1. Цена берётся из таблицы `fares` по `(route_id, from_stop_order, to_stop_order, seat_class)`. Класс берётся из **вагона выбранного места**, а не из запроса.
 2. Цена всегда считается **на сервере**. Цене, присланной с сайта, не доверяем.
 3. В билет записывается цена на момент покупки — если потом админ изменит цену, билет не изменится.
 4. Если цены для пары нет — рейс не показывается в поиске.
@@ -1517,14 +1747,14 @@ flowchart TD
     G -- нет --> E5["409 ALREADY_DEPARTED"]
     G -- да --> H{"Место принадлежит поезду и активно?"}
     H -- нет --> E6["404 NOT_FOUND"]
-    H -- да --> I["Взять цену из fares"]
+    H -- да --> I["Взять цену из fares<br/>по участку и классу вагона"]
     I --> J{"Цена = expectedPrice?"}
     J -- нет --> E7["409 PRICE_CHANGED"]
     J -- да --> K["Сгенерировать номер билета"]
     K --> L["INSERT в tickets"]
     L --> M{"База разрешила?<br/>EXCLUDE"}
     M -- "нет, пересечение" --> E8["ROLLBACK → 409 SEAT_UNAVAILABLE"]
-    M -- да --> N["Запись в audit_log, COMMIT"]
+    M -- да --> N["Запись в audit_log,<br/>письмо в очередь, COMMIT"]
     N --> O["201 + билет"]
 ```
 
@@ -1536,10 +1766,10 @@ flowchart TD
 4. Найти в `trip_stops` остановки `from` и `to`. Нет или `from >= to` → 400.
 5. Проверить `departure_at(from) > now()`. Иначе → 409 `ALREADY_DEPARTED`.
 6. Проверить, что место принадлежит поезду рейса и `is_active = true`.
-7. Найти цену. Если отличается от `expectedPrice` → 409 `PRICE_CHANGED`.
+7. Найти цену по участку и классу вагона этого места. Если отличается от `expectedPrice` → 409 `PRICE_CHANGED`.
 8. Сгенерировать уникальный номер билета (10.6).
 9. Вставить билет. Если база вернула ошибку `23P01` (пересечение) → отменить транзакцию, вернуть 409 `SEAT_UNAVAILABLE`.
-10. Записать событие в журнал, закрыть транзакцию, вернуть билет.
+10. Записать событие в журнал, поставить письмо «Билет забронирован» в очередь (10.11), закрыть транзакцию, вернуть билет.
 
 Код сервиса:
 
@@ -1558,13 +1788,13 @@ export async function bookTicket(userId: number, dto: BookTicketDto) {
       throw new AppError(400, 'INVALID_JOURNEY');
     if (from.departureAt <= new Date()) throw new AppError(409, 'ALREADY_DEPARTED');
 
-    // 3. место
-    const seat = await seatsRepo.findById(tx, dto.seatId);
+    // 3. место (вместе с классом его вагона)
+    const seat = await seatsRepo.findByIdWithCarriage(tx, dto.seatId);
     if (!seat || seat.trainId !== trip.trainId || !seat.isActive)
       throw new AppError(404, 'NOT_FOUND');
 
     // 4. цена
-    const fare = await faresRepo.find(tx, trip.routeId, from.stopOrder, to.stopOrder);
+    const fare = await faresRepo.find(tx, trip.routeId, from.stopOrder, to.stopOrder, seat.seatClass);
     if (!fare) throw new AppError(400, 'INVALID_JOURNEY');
     if (dto.expectedPrice && fare.price !== dto.expectedPrice)
       throw new AppError(409, 'PRICE_CHANGED', undefined, { newPrice: fare.price });
@@ -1578,10 +1808,11 @@ export async function bookTicket(userId: number, dto: BookTicketDto) {
         fromStopOrder: from.stopOrder, toStopOrder: to.stopOrder,
         price: fare.price, currency: fare.currency,
         passengerName: user.name, trainNumber: trip.trainNumber,
-        carriageNo: seat.carriageNo, seatLabel: seat.seatLabel,
+        carriageNo: seat.carriageNo, seatLabel: seat.seatLabel, seatClass: seat.seatClass,
         fromStationName: from.stationName, toStationName: to.stationName,
       });
       await auditRepo.log(tx, userId, 'TICKET_BOOKED', 'ticket', ticket.id);
+      await notifications.queueEmail(tx, 'BOOKING_CONFIRMED', user, ticket);   // письмо (10.11)
       return toTicketDto(ticket, from, to);
     } catch (e) {
       if (isPgError(e, '23P01')) throw new AppError(409, 'SEAT_UNAVAILABLE');
@@ -1621,6 +1852,8 @@ RETURNING k.*;
 ```
 
 Если обновлено 0 строк — сервис отдельно смотрит, почему (нет билета / уже отменён / уже уехал), и возвращает нужную ошибку.
+
+Если отмена прошла — в той же транзакции: запись `TICKET_CANCELLED` в журнал и письмо «Билет отменён» в очередь (10.11).
 
 **Почему место освобождается само?** Правило `EXCLUDE` действует только на билеты со статусом `CONFIRMED`. Отменённый билет в проверке не участвует — место сразу можно купить снова на этот и любой пересекающийся участок (сценарий D). Билет **не удаляется** — он остаётся в истории.
 
@@ -1681,11 +1914,268 @@ flowchart TD
 | Действие админа | Что происходит |
 | --- | --- |
 | Изменить шаблон маршрута или цену | Разрешено. Действует только на **новые** рейсы и **новые** продажи. Старые билеты не меняются |
-| Изменить время конкретного рейса | Если есть билеты — нужно `confirm=true`. Рейс помечается `schedule_changed = true`, пассажир видит «Расписание изменено» |
+| Изменить время конкретного рейса | Если есть билеты — нужно `confirm=true`. Рейс помечается `schedule_changed = true`, пассажир видит «Расписание изменено» и получает письмо |
+| Изменить класс вагона или выключить вагон | Если в вагоне есть будущие билеты — **запрещено** |
 | Удалить остановку из рейса | Если есть билеты через эту остановку — **запрещено** |
 | Выключить место | Если есть будущие билеты на это место — **запрещено** |
 | Удалить поезд, место, станцию | **Не поддерживается** вообще. Только выключение (`is_active = false`) |
-| Отменить рейс | Нужно `confirm=true`. Все билеты → `CANCELLED`, `cancelled_by = ADMIN`, пассажир видит причину |
+| Отменить рейс | Нужно `confirm=true`. Все билеты → `CANCELLED`, `cancelled_by = ADMIN`, пассажир видит причину и получает письмо |
+
+### 10.9 Классы мест (Эконом и Бизнес)
+
+**Как устроено:**
+
+- Класс задаётся **на весь вагон** (`carriages.seat_class`): например, вагон 1 — Бизнес, вагоны 2–3 — Эконом.
+- Для каждого участка и **каждого класса** — своя цена в `fares`.
+- Место «наследует» класс своего вагона.
+
+```
+Поезд T101
+┌─────────────┐┌─────────────┐┌─────────────┐
+│  Вагон 1    ││  Вагон 2    ││  Вагон 3    │
+│  БИЗНЕС     ││  ЭКОНОМ     ││  ЭКОНОМ     │
+│  24 места   ││  60 мест    ││  60 мест    │
+│  от 35 EUR  ││  от 19 EUR  ││  от 19 EUR  │
+└─────────────┘└─────────────┘└─────────────┘
+```
+
+**Где используется класс:**
+
+| Шаг | Что происходит |
+| --- | --- |
+| Поиск | По каждому рейсу показываются цены и свободные места **для каждого класса**; на карточке — «от 19.00 EUR». Можно отфильтровать только Эконом или только Бизнес |
+| Выбор места | Вагон подписан классом, при выборе места показывается цена его класса |
+| Бронирование | Сервер сам определяет класс по вагону выбранного места и берёт цену этого класса |
+| Билет | В билете записан класс (`seat_class`), он показывается на странице билета, в письме и в PDF |
+
+**Алгоритм определения цены при бронировании:**
+
+1. По `seatId` найти место и его вагон → `seat_class`.
+2. Найти в `fares` цену по `(route_id, from, to, seat_class)`.
+3. Если цены нет → `400 INVALID_JOURNEY` (не должно случаться — рейсы без цен не создаются).
+4. Записать в билет цену и класс.
+
+### 10.10 Схема расположения мест в вагоне
+
+**Как хранится схема.** У вагона есть:
+- `rows_count` — число рядов;
+- `layout` — как выглядит один ряд: буквы мест и `_` для прохода.
+
+| layout | Как выглядит ряд | Мест в ряду | Обычно для |
+| --- | --- | --- | --- |
+| `AB_CD` | `[A][B]  проход  [C][D]` | 4 | Эконом |
+| `A_BC` | `[A]  проход  [B][C]` | 3 | Бизнес |
+
+**Алгоритм: добавление вагона (места создаются автоматически)**
+
+```mermaid
+flowchart TD
+    A["Админ: номер вагона, класс,<br/>число рядов, layout"] --> B{"Данные правильные?<br/>layout только буквы и _"}
+    B -- нет --> E["400 VALIDATION_ERROR"]
+    B -- да --> C["Создать запись в carriages"]
+    C --> D["Для каждого ряда r от 1 до rows_count"]
+    D --> F["Для каждой буквы L в layout (кроме _)"]
+    F --> G["Создать место: row_no = r, seat_letter = L,<br/>seat_label = r + L (например 12A)"]
+    G --> F
+    F --> D
+    D --> H["Сохранить всё в одной транзакции"]
+```
+
+```ts
+function buildSeats(trainId: number, carriageNo: number, rowsCount: number, layout: string) {
+  const letters = layout.split('').filter(ch => ch !== '_');   // 'AB_CD' → ['A','B','C','D']
+  const seats = [];
+  for (let row = 1; row <= rowsCount; row++) {
+    for (const letter of letters) {
+      seats.push({ trainId, carriageNo, rowNo: row, seatLetter: letter, seatLabel: `${row}${letter}` });
+    }
+  }
+  return seats;                                                 // 15 рядов × 4 = 60 мест
+}
+```
+
+**Алгоритм: как сайт рисует схему вагона**
+
+1. Получить с сервера вагон: `rowsCount`, `layout`, список мест с `row`, `letter`, `available`.
+2. Для каждого ряда от 1 до `rowsCount` нарисовать строку.
+3. В строке пройти по символам `layout`:
+   - буква → кнопка места (найти место с этим рядом и буквой);
+   - `_` → пустая колонка (проход).
+4. Цвет кнопки: свободно / занято / выбрано / выключено.
+
+```
+Вагон 3 · ЭКОНОМ · 19.00 EUR             Вагон 1 · БИЗНЕС · 35.00 EUR
+      A    B         C    D                    A         B    C
+  1  [  ] [  ]      [▓▓] [  ]              1  [  ]      [  ] [▓▓]
+  2  [  ] [  ]      [  ] [  ]              2  [▓▓]      [  ] [  ]
+ ...                                      ...
+ 12  [■■] [  ]      [  ] [▓▓]              8  [  ]      [  ] [  ]
+
+ [  ] свободно   [▓▓] занято   [■■] выбрано
+```
+
+### 10.11 Письма на email
+
+**Какие письма отправляются:**
+
+| Тип | Когда | Что в письме |
+| --- | --- | --- |
+| `BOOKING_CONFIRMED` | Пассажир забронировал билет | Номер билета, поезд, дата, станции, время, вагон, место, класс, цена, ссылка на билет |
+| `TICKET_CANCELLED` | Пассажир отменил билет | Номер билета, поезд, дата, станции, «Билет отменён» |
+| `TRIP_CANCELLED` | Админ отменил рейс | Номер билета, поезд, дата, причина отмены |
+| `SCHEDULE_CHANGED` | Админ изменил время рейса | Номер билета, старое и новое время |
+
+**Почему через очередь (таблица `email_outbox`).** Если отправлять письмо прямо во время бронирования:
+- почтовый сервер не отвечает → бронь падает с ошибкой, хотя место свободно;
+- бронь отменилась после отправки → пассажир получил письмо о билете, которого нет.
+
+Поэтому письмо сначала **записывается в таблицу** в той же транзакции, что и бронь, а **отправляется отдельно**.
+
+```mermaid
+sequenceDiagram
+    participant P as Пассажир
+    participant API as Сервер
+    participant DB as PostgreSQL
+    participant W as Отправщик писем
+    participant SMTP as Почтовый сервер
+    P->>API: POST /api/tickets
+    API->>DB: BEGIN, INSERT tickets, INSERT email_outbox (PENDING), COMMIT
+    API-->>P: 201 Билет (сразу, не ждём письма)
+    loop каждые 10 секунд
+        W->>DB: взять письма PENDING, у которых next_attempt_at ≤ now
+        W->>SMTP: отправить
+        alt успешно
+            W->>DB: status = SENT, sent_at = now
+        else ошибка
+            W->>DB: attempts + 1, next_attempt_at = позже
+        end
+    end
+```
+
+**Алгоритм отправщика (работает внутри того же сервера, каждые 10 секунд):**
+
+1. Взять до 20 писем: `status = 'PENDING' AND next_attempt_at <= now()`, с `FOR UPDATE SKIP LOCKED` (если запущено несколько копий сервера, одно письмо не уйдёт дважды).
+2. Для каждого письма собрать текст по шаблону (`type` + `payload`) и отправить через **nodemailer**.
+3. Успех → `status = 'SENT'`, `sent_at = now()`.
+4. Ошибка → `attempts + 1`, `last_error = текст`, следующая попытка через 1, 2, 4, 8, 16 минут.
+5. После 5 неудачных попыток → `status = 'FAILED'`, запись в лог с уровнем `warn`.
+
+```ts
+export async function sendPendingEmails() {
+  await db.$transaction(async (tx) => {
+    const emails = await tx.$queryRaw`
+      SELECT * FROM email_outbox
+       WHERE status = 'PENDING' AND next_attempt_at <= now()
+       ORDER BY id LIMIT 20
+       FOR UPDATE SKIP LOCKED`;
+    for (const e of emails) {
+      try {
+        await mailer.sendMail({ to: e.to_email, ...renderTemplate(e.type, e.payload) });
+        await outboxRepo.markSent(tx, e.id);
+      } catch (err) {
+        const attempts = e.attempts + 1;
+        await outboxRepo.markRetry(tx, e.id, attempts, attempts >= 5, String(err));
+      }
+    }
+  });
+}
+setInterval(sendPendingEmails, 10_000);   // в server.ts
+```
+
+Письмо отправляется на email из аккаунта пассажира. Локально письма ловит **Mailpit** (тестовый почтовый сервер, раздел 18) — их видно в браузере на `http://localhost:8025`, настоящим людям ничего не уходит.
+
+### 10.12 Скачивание билета в PDF
+
+**Endpoint:** `GET /api/tickets/:id/pdf` (9.5, п. 32).
+
+**Алгоритм:**
+
+1. Проверить вход.
+2. Найти билет: для пассажира — `WHERE id = $1 AND user_id = текущий`, для админа — по `id`. Нет → `404`.
+3. Загрузить время отправления и прибытия из `trip_stops`.
+4. Сгенерировать QR-код с номером билета (библиотека `qrcode`) — его можно отсканировать при проверке.
+5. Собрать PDF (библиотека `pdfkit`, формат A5).
+6. Если билет отменён — поверх крупно написать «ОТМЕНЁН».
+7. Отдать файл с заголовками `Content-Type: application/pdf` и `Content-Disposition: attachment; filename="TTX-….pdf"`.
+
+**Как выглядит PDF-билет:**
+
+```
+┌──────────────────────────────────────────────┐
+│  TrainTix                 Билет TTX-7F3K9Q2M │
+├──────────────────────────────────────────────┤
+│  Пассажир:  Anna Novak                       │
+│  Поезд:     T101          Дата: 05.12.2026   │
+│                                              │
+│  Prague   07:00  ──────────►  Brno   09:30   │
+│                                              │
+│  Вагон 3   Место 12A   Класс: Эконом         │
+│  Цена: 19.00 EUR       Статус: Подтверждён   │
+│                                    ┌──────┐  │
+│                                    │ QR   │  │
+│                                    │ код  │  │
+│                                    └──────┘  │
+└──────────────────────────────────────────────┘
+```
+
+```ts
+export async function buildTicketPdf(t: TicketView): Promise<Buffer> {
+  const doc = new PDFDocument({ size: 'A5', margin: 36 });
+  doc.registerFont('main', 'fonts/Roboto-Regular.ttf');      // шрифт с кириллицей
+  doc.font('main').fontSize(18).text(`TrainTix — билет ${t.ticketNumber}`);
+  doc.fontSize(12)
+     .text(`Пассажир: ${t.passengerName}`)
+     .text(`Поезд: ${t.trainNumber}   Дата: ${t.date}`)
+     .text(`${t.from.name} ${t.from.time} → ${t.to.name} ${t.to.time}`)
+     .text(`Вагон ${t.carriageNo}, место ${t.seatLabel}, класс: ${t.seatClassName}`)
+     .text(`Цена: ${t.price} ${t.currency}`);
+  doc.image(await QRCode.toBuffer(t.ticketNumber), { width: 100 });
+  if (t.status === 'CANCELLED') doc.fontSize(40).fillColor('red').text('ОТМЕНЁН', { align: 'center' });
+  doc.end();
+  return streamToBuffer(doc);
+}
+```
+
+### 10.13 Фильтры
+
+**1. Фильтры поиска** (`GET /api/trips/search`)
+
+| Фильтр | Как работает |
+| --- | --- |
+| Время отправления «от» и «до» | Условие на местное время отправления со станции посадки |
+| Класс | Только рейсы, где есть цена и места нужного класса |
+| Максимальная цена | `price <= maxPrice` |
+| Только со свободными местами | Убираются рейсы с `freeSeats = 0` |
+| Сортировка | По времени отправления, по цене, по длительности |
+
+**2. Фильтры «Мои билеты»** (`GET /api/tickets`)
+
+| Фильтр | Как работает |
+| --- | --- |
+| Вкладка (статус) | Предстоящие / Завершённые / Отменённые (правила из 10.7) |
+| Период | Дата поездки от и до |
+| Поиск | По номеру билета или названию станции (`ILIKE '%текст%'`) |
+| Сортировка | Сначала ближайшие / сначала новые |
+
+**3. Фильтры бронирований для админа** (`GET /api/admin/tickets`)
+
+| Фильтр | Как работает |
+| --- | --- |
+| Статус | Подтверждён / Отменён |
+| Рейс, номер поезда | `trip_id = …`, `train_number = …` |
+| Период поездки | Дата поездки от и до |
+| Станция | Билеты, где станция — посадка или выход |
+| Email пассажира, номер билета | Поиск по части текста |
+| Выгрузка | Кнопка «Скачать CSV» — тот же запрос, но ответ в виде файла |
+
+**Общий алгоритм фильтров на сервере:**
+
+1. Проверить параметры через zod (даты — правильные, `dateFrom <= dateTo`, цена ≥ 0, `limit` ≤ 100).
+2. Собрать условие `WHERE` только из переданных фильтров (не переданный фильтр не влияет).
+3. Все значения — только через параметры (`$1`, `$2`…), никогда не вставлять текст в SQL.
+4. Выполнить запрос с `LIMIT / OFFSET` и отдельно посчитать `total`.
+
+**На сайте** фильтры хранятся в адресе страницы (`/search?from=1&to=2&date=…&seatClass=ECONOMY&sort=price`) — после обновления страницы или по ссылке фильтры сохраняются.
 
 ---
 
@@ -1771,12 +2261,13 @@ flowchart TD
 2. Взять все **активные** места поезда.
 3. Взять все **подтверждённые** билеты этого рейса.
 4. Место **свободно**, если среди билетов на это место **нет ни одного**, который пересекается с `[from, to)`.
-5. Сгруппировать места по вагонам и отсортировать.
+5. Сгруппировать места по вагонам. К каждому вагону добавить класс, схему (`rows_count`, `layout`) и цену этого класса на выбранный участок.
 
 SQL (одним запросом):
 
 ```sql
-SELECT s.id AS seat_id, s.carriage_no, s.seat_label,
+SELECT s.id AS seat_id, s.carriage_no, s.row_no, s.seat_letter, s.seat_label,
+       c.seat_class, c.rows_count, c.layout,
        NOT EXISTS (
          SELECT 1 FROM tickets k
           WHERE k.trip_id = $1
@@ -1786,9 +2277,10 @@ SELECT s.id AS seat_id, s.carriage_no, s.seat_label,
             AND $2 < k.to_stop_order       -- from < k.to
        ) AS available
 FROM seats s
-JOIN trips t ON t.id = $1 AND t.train_id = s.train_id
-WHERE s.is_active
-ORDER BY s.carriage_no, s.seat_label;
+JOIN trips t     ON t.id = $1 AND t.train_id = s.train_id
+JOIN carriages c ON c.train_id = s.train_id AND c.carriage_no = s.carriage_no
+WHERE s.is_active AND c.is_active
+ORDER BY s.carriage_no, s.row_no, s.seat_letter;
 -- $1 = tripId, $2 = from, $3 = to
 ```
 
@@ -1802,6 +2294,11 @@ ORDER BY s.carriage_no, s.seat_label;
 | D — отмена | Prague → Brno отменён | Prague → Vienna [0,2) | ✅ Успех |
 | E — одновременно | — | Два человека одновременно | ✅ один, ❌ второй (раздел 14) |
 | F — неверное направление | — | Найти Vienna → Prague | Поезд не показан |
+| G — другой рейс | 12A Prague → Vienna на 5 декабря | 12A Prague → Vienna на 6 декабря | ✅ Успех — разные рейсы не конфликтуют |
+
+**Почему разные даты и рейсы не мешают друг другу.** Проверка пересечения (и в SQL, и в `EXCLUDE`) сравнивает только билеты с **одинаковым `trip_id`**. Рейс 5 декабря и рейс 6 декабря — это разные строки в `trips`, поэтому их билеты никогда не сравниваются.
+
+**Место закреплено на всём участке.** Билет Prague → Vienna `[0, 2)` занимает место сразу на участках 0 и 1 — пассажир сидит на одном месте всю поездку, и никто другой не может купить это место ни на одном из этих участков.
 
 ---
 
@@ -1870,6 +2367,8 @@ export const requireRole = (role: 'ADMIN') => (req, res, next) => {
 | Угроза | Что это | Защита |
 | --- | --- | --- |
 | Чужие билеты | Пассажир подставляет чужой ID билета | Каждый запрос: `WHERE id = $1 AND user_id = текущий`. Чужой → 404 |
+| Чужой PDF-билет | Подставить чужой ID в `/api/tickets/:id/pdf` | Та же проверка владельца → 404 |
+| Подмена класса | Отправить в запросе «эконом», выбрав место в бизнесе | Класс и цена определяются сервером по вагону места |
 | Подмена пользователя | Отправить `userId` в теле запроса | `userId` берётся **только** из токена |
 | SQL-инъекция | Вставить SQL-код в поле | Только параметризованные запросы (`$1`, ORM) |
 | XSS | Вставить скрипт в имя | React экранирует текст; `dangerouslySetInnerHTML` не используется; helmet ставит CSP |
@@ -1970,6 +2469,8 @@ export function errorHandler(err, req, res, next) {
 | Токен истёк | 401 | Выход из аккаунта, переход на вход |
 | Сервер упал / нет интернета | 500 / сеть | «Что-то пошло не так» + кнопка «Повторить» |
 | Админ выключает место с билетами | 409 HAS_CONFIRMED_TICKETS | Окно со списком билетов |
+| Почтовый сервер недоступен | — (бронь уже создана) | Билет показывается как обычно; письмо отправится позже автоматически (10.11) |
+| Неправильный фильтр (дата «до» раньше «от») | 400 VALIDATION_ERROR | Подсказка под полем фильтра |
 
 ---
 
@@ -2107,6 +2608,8 @@ it('только одна бронь из 20 одновременных', async 
 | Место занято (конфликт) | warn | tripId, seatId, from, to |
 | Отмена билета | info | ticketId, кем отменён |
 | Действие админа | info | что изменено |
+| Письмо отправлено | info | emailId, тип письма |
+| Письмо не отправилось | warn | emailId, тип, номер попытки, ошибка |
 | Ошибка 500 | error | requestId, stack trace |
 
 **Никогда не логировать:** пароли, хэши паролей, JWT-токены, cookie.
@@ -2134,7 +2637,7 @@ it('только одна бронь из 20 одновременных', async 
 | `TICKET_BOOKED` | Пассажир забронировал билет |
 | `TICKET_CANCELLED` | Пассажир отменил билет |
 | `STATION_CREATED` / `STATION_UPDATED` | Админ изменил станцию |
-| `TRAIN_CREATED` / `TRAIN_UPDATED` / `SEATS_GENERATED` / `SEAT_UPDATED` | Админ изменил поезд или места |
+| `TRAIN_CREATED` / `TRAIN_UPDATED` / `CARRIAGE_ADDED` / `CARRIAGE_UPDATED` / `SEAT_UPDATED` | Админ изменил поезд, вагон или место |
 | `ROUTE_CREATED` / `ROUTE_UPDATED` / `FARES_UPDATED` | Админ изменил маршрут или цены |
 | `TRIPS_CREATED` / `TRIP_SCHEDULE_CHANGED` / `TRIP_CANCELLED` | Админ изменил рейсы |
 
@@ -2146,7 +2649,11 @@ it('только одна бронь из 20 одновременных', async 
 
 ### 16.1 Внешние системы
 
-В версии 1.0 **внешних интеграций нет**: нет платёжных систем, нет железнодорожных API, нет отправки email. Все данные вводит администратор.
+Единственная внешняя система — **почтовый сервер (SMTP)** для писем пассажирам (10.11). Платёжных систем и железнодорожных API нет — все данные о поездах вводит администратор.
+
+| Внешняя система | Зачем | Как подключается | Что если недоступна |
+| --- | --- | --- | --- |
+| Почтовый сервер (SMTP) | Письма о брони и отмене | nodemailer, настройки `SMTP_*` в `.env`. Локально — Mailpit, в продакшене — любой SMTP-сервис (например, Brevo или SendGrid) | Бронирование работает как обычно, письма ждут в `email_outbox` и отправляются позже |
 
 ### 16.2 Взаимодействие компонентов
 
@@ -2160,9 +2667,12 @@ flowchart LR
     subgraph Server["Node.js"]
         R["Routes"] --> C["Controllers"] --> S["Services"] --> RP["Repositories"]
         S --> L["Logger / Audit"]
+        W["Отправщик писем<br/>(каждые 10 с)"]
     end
     RP -- "SQL через пул соединений" --> DB[("PostgreSQL")]
     L --> DB
+    W -- "читает email_outbox" --> DB
+    W -- "SMTP" --> MAIL["Почтовый сервер"]
 ```
 
 | Связь | Как общаются | Формат | Особенности |
@@ -2170,7 +2680,9 @@ flowchart LR
 | Браузер → Сервер | HTTPS-запросы | JSON | Cookie с токеном отправляется автоматически (`withCredentials: true`) |
 | Сервер → Браузер | HTTP-ответы | JSON или HTML/JS (сайт) | Единый формат ошибок |
 | Сервер → БД | SQL через пул соединений Prisma | SQL | До 10 соединений, транзакции |
-| Модуль → модуль (внутри сервера) | Обычный вызов функций сервиса | TypeScript-объекты | Например, `tickets.service` вызывает `trips.repository` |
+| Модуль → модуль (внутри сервера) | Обычный вызов функций сервиса | TypeScript-объекты | Например, `tickets.service` вызывает `trips.repository` и `notifications.queueEmail` |
+| Отправщик писем → почтовый сервер | SMTP | Письмо (HTML + текст) | Повторные попытки при ошибке |
+| Сервер → браузер (PDF, CSV) | HTTP-ответ с файлом | `application/pdf`, `text/csv` | Браузер сохраняет файл |
 
 ### 16.3 Пример: вход пользователя от начала до конца
 
@@ -2208,9 +2720,8 @@ export default defineConfig({
 
 | Интеграция | Как добавить |
 | --- | --- |
-| Email-подтверждение брони | Библиотека `nodemailer` + SMTP; отправка после COMMIT брони |
-| PDF-билет | Библиотека `pdfkit`, endpoint `GET /api/tickets/:id/pdf` |
 | Оплата | Платёжный сервис (например Stripe): бронь со статусом «ожидает оплаты» + webhook |
+| SMS-уведомления | SMS-сервис, тот же механизм очереди, что у писем |
 
 ---
 
@@ -2223,20 +2734,20 @@ export default defineConfig({
 | `/` | Главная | Все | Форма поиска |
 | `/register` | Регистрация | Гость | Имя, email, пароль, повтор пароля |
 | `/login` | Вход | Гость | Email, пароль |
-| `/search?from=&to=&date=` | Результаты поиска | Все | Карточки поездов |
-| `/trips/:id?from=&to=` | Рейс и выбор места | Все | Остановки + карта мест |
+| `/search?from=&to=&date=` | Результаты поиска | Все | Фильтры + карточки поездов с ценами по классам |
+| `/trips/:id?from=&to=` | Рейс и выбор места | Все | Остановки + схема вагона с классами |
 | `/booking/review` | Проверка брони | Пассажир | Всё о брони + «Подтвердить» |
-| `/tickets` | Мои билеты | Пассажир | 3 вкладки |
-| `/tickets/:id` | Билет | Владелец | Полный билет + «Отменить» |
+| `/tickets` | Мои билеты | Пассажир | 3 вкладки + фильтры |
+| `/tickets/:id` | Билет | Владелец | Полный билет + «Скачать PDF» + «Отменить» |
 | `/account` | Аккаунт | Пассажир | Имя, email, дата регистрации |
 | `/admin` | Админ: главная | Админ | Ссылки на разделы |
 | `/admin/stations` | Станции | Админ | Таблица + форма |
 | `/admin/trains` | Поезда | Админ | Таблица + форма |
-| `/admin/trains/:id` | Поезд и места | Админ | Генератор мест, включение/выключение |
+| `/admin/trains/:id` | Поезд и вагоны | Админ | Добавление вагона (класс, ряды, схема), просмотр схемы, включение/выключение мест |
 | `/admin/routes` | Маршруты | Админ | Список |
 | `/admin/routes/:id` | Редактор маршрута | Админ | Остановки, время, таблица цен |
 | `/admin/trips` | Рейсы | Админ | Создание на даты, изменение времени, отмена |
-| `/admin/bookings` | Бронирования | Админ | Все билеты с фильтрами |
+| `/admin/bookings` | Бронирования | Админ | Все билеты с фильтрами + «Скачать CSV» |
 | `*` | 404 | Все | «Страница не найдена» |
 
 ### 17.2 Путь пассажира
@@ -2276,10 +2787,15 @@ flowchart LR
 ┌──────────────────────────────────────────────────────────────┐
 │ Prague → Brno, 5 декабря 2026                                │
 ├──────────────────────────────────────────────────────────────┤
-│ T101   07:00 ──── 2 ч 30 мин ────► 09:30    19.00 EUR        │
-│        Есть места (119)                       [ Выбрать ]    │
+│ Фильтры: Время [08:00]–[18:00]  Класс [Любой ▼]  До [  ] EUR │
+│          [x] Только со свободными местами                    │
+│ Сортировка: (•) по времени  ( ) по цене  ( ) по длительности │
 ├──────────────────────────────────────────────────────────────┤
-│ T205   13:15 ──── 2 ч 20 мин ────► 15:35    21.00 EUR        │
+│ T101   07:00 ──── 2 ч 30 мин ────► 09:30    от 19.00 EUR     │
+│        Эконом 19.00 EUR · 119 мест                           │
+│        Бизнес 35.00 EUR · 24 места            [ Выбрать ]    │
+├──────────────────────────────────────────────────────────────┤
+│ T205   13:15 ──── 2 ч 20 мин ────► 15:35    от 21.00 EUR     │
 │        Нет мест                               [ Выбрать ]✗   │
 └──────────────────────────────────────────────────────────────┘
 ```
@@ -2295,13 +2811,17 @@ flowchart LR
 │  ┆                                                           │
 │  ○ Vienna   11:00                                            │
 ├──────────────────────────────────────────────────────────────┤
-│ Вагон  [1] [2] [3]                                           │
-│   A  B     C  D                                              │
-│  [1A][1B] [1C][1D]     [ ] свободно                          │
-│  [2A][▓▓] [2C][2D]     [▓] занято                            │
-│  [3A][3B] [■■][3D]     [■] выбрано                           │
+│ Вагон [1 Бизнес 35 EUR] [2 Эконом 19 EUR] [3 Эконом 19 EUR]  │
 │                                                              │
-│ Выбрано: вагон 1, место 3C · 19.00 EUR       [ Далее ]       │
+│ Вагон 3 · Эконом                                             │
+│         A    B         C    D                                │
+│    1  [  ] [  ]      [▓▓] [  ]       [  ] свободно           │
+│    2  [  ] [▓▓]      [  ] [  ]       [▓▓] занято             │
+│    3  [  ] [  ]      [■■] [  ]       [■■] выбрано            │
+│   ...           проход                                       │
+│   15  [  ] [  ]      [  ] [▓▓]                               │
+│                                                              │
+│ Выбрано: вагон 3, место 3C, Эконом · 19.00 EUR  [ Далее ]    │
 └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -2314,10 +2834,10 @@ flowchart LR
 │ Пассажир:  Anna Novak                        │
 │ Поезд:     T101       Дата: 05.12.2026       │
 │ Prague 07:00  ───────►  Brno 09:30           │
-│ Вагон 1, место 3C                            │
+│ Вагон 3, место 3C · Эконом                   │
 │ Цена:      19.00 EUR                         │
 ├──────────────────────────────────────────────┤
-│                        [ Отменить билет ]    │
+│      [ Скачать PDF ]   [ Отменить билет ]    │
 └──────────────────────────────────────────────┘
 ```
 
@@ -2335,12 +2855,13 @@ App
         │   └── SearchForm
         │       └── StationSelect ×2
         ├── SearchResultsPage
+        │   ├── SearchFilters
         │   ├── TripCard ×N
         │   └── EmptyState
         ├── TripDetailsPage
         │   ├── StopsTimeline
         │   ├── CarriageTabs
-        │   ├── SeatGrid
+        │   ├── CarriageMap            (схема вагона по layout)
         │   │   └── SeatButton ×N
         │   └── SelectionBar
         ├── RequireAuth
@@ -2348,17 +2869,19 @@ App
         │   │   └── BookingSummary
         │   ├── MyTicketsPage
         │   │   ├── Tabs
+        │   │   ├── TicketFilters
         │   │   └── TicketCard ×N
         │   ├── TicketDetailsPage
         │   │   ├── TicketView
+        │   │   ├── DownloadPdfButton
         │   │   └── ConfirmDialog
         │   └── AccountPage
         └── RequireAdmin
             ├── AdminStationsPage   ─┐
-            ├── AdminTrainsPage      │ DataTable + EntityForm
+            ├── AdminTrainsPage      │ DataTable + EntityForm + CarriageEditor
             ├── AdminRouteEditorPage │ + StopsEditor + FaresMatrix
             ├── AdminTripsPage       │
-            └── AdminBookingsPage   ─┘
+            └── AdminBookingsPage   ─┘ + BookingFilters + ExportCsvButton
 ```
 
 | Компонент | Что делает |
@@ -2367,7 +2890,8 @@ App
 | StationSelect | Выпадающий список с поиском по названию |
 | TripCard | Поезд, время, длительность, цена, есть ли места |
 | StopsTimeline | Все остановки по порядку, свой участок выделен цветом |
-| SeatGrid / SeatButton | Места по вагонам: свободно / занято / выбрано |
+| CarriageTabs | Вкладки вагонов с классом и ценой |
+| CarriageMap / SeatButton | Схема вагона: ряды, проход, места; свободно / занято / выбрано (алгоритм 10.10) |
 | BookingSummary | Всё о брони перед подтверждением |
 | TicketCard / TicketView | Билет кратко / полностью |
 | StatusBadge | «Предстоящий» / «Завершён» / «Отменён» |
@@ -2375,7 +2899,12 @@ App
 | ErrorMessage, EmptyState, Spinner, Toast | Ошибки, пустые списки, загрузка, уведомления |
 | RequireAuth / RequireAdmin | Не пускают на страницу без входа / без роли админа |
 | StopsEditor | Админ: добавить, удалить, переставить остановки, ввести время |
-| FaresMatrix | Админ: таблица цен «откуда × куда» |
+| FaresMatrix | Админ: таблица цен «откуда × куда», отдельно для Эконом и Бизнес |
+| SearchFilters | Фильтры поиска: время, класс, макс. цена, только со свободными местами, сортировка |
+| TicketFilters | Фильтры «Мои билеты»: период, поиск по номеру или станции |
+| DownloadPdfButton | Скачивание билета в PDF |
+| CarriageEditor | Админ: добавить вагон — номер, класс, число рядов, схема (`AB_CD`), предпросмотр схемы |
+| BookingFilters / ExportCsvButton | Админ: фильтры бронирований и выгрузка в CSV |
 
 ### 17.5 Состояние
 
@@ -2412,6 +2941,7 @@ export const getSeatMap  = (id: number, from: number, to: number) =>
 // api/tickets.ts
 export const bookTicket   = (b: BookTicketDto) => http.post('/tickets', b).then(r => r.data);
 export const cancelTicket = (id: number) => http.post(`/tickets/${id}/cancel`).then(r => r.data);
+export const ticketPdfUrl = (id: number) => `/api/tickets/${id}/pdf`;   // обычная ссылка <a href download>
 ```
 
 Использование в компоненте:
@@ -2436,6 +2966,9 @@ const book = useMutation({
 | Открыть рейс | `GET /trips/:id`, `GET /trips/:id/seats` | Показать остановки и места |
 | Подтвердить бронь | `POST /tickets` | Обновить `tickets` и `seats`, перейти к билету |
 | Отменить | `POST /tickets/:id/cancel` | Обновить `tickets`, показать статус «Отменён» |
+| Скачать PDF | `GET /tickets/:id/pdf` | Браузер сохраняет файл |
+| Изменить фильтр | Тот же запрос с новыми параметрами | Параметры записываются в адрес страницы |
+| Админ: скачать CSV | `GET /admin/tickets/export` | Браузер сохраняет файл |
 
 ### 17.7 Удобство и доступность
 
@@ -2469,10 +3002,11 @@ const book = useMutation({
 │  │ Docker-контейнер     │  │
 │  │ Node.js + Express    │  │
 │  │ + собранный React    │  │
+│  │ + отправщик писем    │  │
 │  └──────────┬──────────┘  │
 └─────────────┼─────────────┘
-              │ DATABASE_URL (SSL)
-              ▼
+              │ DATABASE_URL (SSL)          SMTP
+              ▼                         ──────────►  Почтовый сервис
 ┌───────────────────────────┐
 │ Управляемая PostgreSQL     │
 │ + ежедневные бэкапы        │
@@ -2491,6 +3025,13 @@ JWT_EXPIRES_IN=7d
 CORS_ORIGIN=http://localhost:5173
 LOG_LEVEL=debug
 APP_TIMEZONE=Europe/Prague
+APP_URL=http://localhost:5173
+SMTP_HOST=localhost
+SMTP_PORT=1025
+SMTP_USER=
+SMTP_PASSWORD=
+MAIL_FROM="TrainTix <no-reply@traintix.local>"
+SEED_ADMIN_PASSWORD=замените-на-пароль-админа
 ```
 
 | Переменная | Описание |
@@ -2503,6 +3044,10 @@ APP_TIMEZONE=Europe/Prague
 | CORS_ORIGIN | Адрес фронта при разработке |
 | LOG_LEVEL | Уровень логов |
 | APP_TIMEZONE | Часовой пояс по умолчанию |
+| APP_URL | Адрес сайта — для ссылок в письмах |
+| SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD | Почтовый сервер (локально — Mailpit) |
+| MAIL_FROM | Отправитель писем |
+| SEED_ADMIN_PASSWORD | Пароль первого администратора (для `npm run seed`) |
 
 ### 18.4 docker-compose.yml (локально)
 
@@ -2518,6 +3063,12 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+
+  mailpit:                       # тестовая почта: письма видны на http://localhost:8025
+    image: axllent/mailpit
+    ports:
+      - "1025:1025"              # SMTP
+      - "8025:8025"              # веб-интерфейс
 volumes:
   pgdata:
 ```
@@ -2558,8 +3109,8 @@ CMD ["sh", "-c", "npx prisma migrate deploy && node dist/server.js"]
 # 1. Скачать проект
 git clone <адрес-репозитория> traintix && cd traintix
 
-# 2. Запустить базу данных
-docker compose up -d db
+# 2. Запустить базу данных и тестовую почту
+docker compose up -d db mailpit
 
 # 3. Настроить сервер
 cd server
@@ -2615,10 +3166,10 @@ push / pull request
 
 | Уровень | Инструмент | Что проверяем |
 | --- | --- | --- |
-| Unit | Vitest | `segmentsOverlap`, `generateTicketNumber`, расчёт статуса билета, расчёт времени рейса, валидация |
+| Unit | Vitest | `segmentsOverlap`, `generateTicketNumber`, расчёт статуса билета, расчёт времени рейса, `buildSeats` (места по схеме вагона), шаблоны писем, валидация фильтров |
 | Integration | Vitest + тестовая PostgreSQL | Сервисы с настоящей базой: бронь, отмена, EXCLUDE |
 | API | Supertest | Все endpoints: коды ответов, формат, права доступа |
-| Компоненты | React Testing Library | SearchForm, SeatGrid, BookingSummary, сообщения об ошибках |
+| Компоненты | React Testing Library | SearchForm, SearchFilters, CarriageMap, BookingSummary, сообщения об ошибках |
 | Функциональные (E2E) | Playwright | Полные сценарии в браузере |
 
 ### 19.2 Unit-тесты — примеры
@@ -2661,12 +3212,26 @@ describe('segmentsOverlap', () => {
 | TC-23 | Отмена рейса админом | POST trips/:id/cancel confirm=true | Все билеты CANCELLED, пассажир видит причину | FR-31 |
 | TC-24 | Цена изменилась | Админ меняет цену, пассажир подтверждает со старой | 409 PRICE_CHANGED | FR-13 |
 | TC-25 | Админ видит все брони | GET /api/admin/tickets | Билеты всех пассажиров | FR-30 |
+| TC-26 | Разные рейсы не конфликтуют | Купить 12A [0,2) на 5 декабря и 12A [0,2) на 6 декабря | Оба 201 | FR-35, сценарий G |
+| TC-27 | Билет после отправления | Билет на рейс, который уже ушёл | В «Завершённые», статус «Подтверждён» | FR-37 |
+| TC-28 | Цена по классу | Забронировать место в вагоне Бизнес | Цена = цена Бизнес из `fares`, в билете класс BUSINESS | FR-38 |
+| TC-29 | Добавление вагона | POST carriages: 15 рядов, `AB_CD` | Создано 60 мест 1A…15D | FR-39 |
+| TC-30 | Схема вагона | Открыть карту мест | Ряды и проход совпадают с `layout`, занятые места отмечены | FR-39 |
+| TC-31 | Письмо о брони | Забронировать билет | В `email_outbox` запись PENDING; через 10 с письмо в Mailpit, статус SENT | FR-40 |
+| TC-32 | Почта недоступна | Остановить Mailpit, забронировать | Бронь 201; письмо остаётся PENDING, `attempts` растёт; после запуска Mailpit — отправлено | FR-40 |
+| TC-33 | Письмо об отмене | Отменить билет / админ отменяет рейс | Письмо `TICKET_CANCELLED` / `TRIP_CANCELLED` | FR-41 |
+| TC-34 | PDF своего билета | GET /api/tickets/:id/pdf | Файл PDF со всеми данными и QR-кодом | FR-42 |
+| TC-35 | PDF чужого билета | Пользователь B скачивает PDF билета A | 404 | FR-42, FR-24 |
+| TC-36 | Фильтры поиска | Поиск с `seatClass=BUSINESS&maxPrice=30` | Только рейсы, где Бизнес ≤ 30 EUR | FR-43 |
+| TC-37 | Сортировка по цене | Поиск с `sort=price` | Рейсы по возрастанию `minPrice` | FR-43 |
+| TC-38 | Фильтры «Мои билеты» | `q=TTX-7F3K` | Найден нужный билет | FR-44 |
+| TC-39 | Фильтры и CSV у админа | Фильтр по поезду + «Скачать CSV» | Файл содержит только билеты этого поезда | FR-45 |
 
 ### 19.4 E2E-сценарии (Playwright)
 
-1. **Полный путь пассажира:** регистрация → поиск Prague → Brno → выбор места → подтверждение → билет → «Мои билеты» → отмена.
+1. **Полный путь пассажира:** регистрация → поиск Prague → Brno с фильтром класса → выбор места на схеме вагона → подтверждение → билет → скачать PDF → письмо в Mailpit → «Мои билеты» → отмена.
 2. **Конфликт мест:** два браузера выбирают одно место, оба нажимают «Подтвердить» → у одного билет, у другого сообщение «Место занято».
-3. **Админ:** вход → создать станции, поезд, места, маршрут, цены, рейсы → проверить, что рейс находится в поиске.
+3. **Админ:** вход → создать станции, поезд, вагоны (Бизнес и Эконом), маршрут, цены по классам, рейсы → проверить, что рейс находится в поиске → отфильтровать бронирования и скачать CSV.
 
 ### 19.5 Тестовая база
 
@@ -2684,7 +3249,9 @@ describe('segmentsOverlap', () => {
 | --- | --- |
 | Поиск рейсов | < 1 с при 10 000 рейсов и 100 000 билетов |
 | Карта мест | < 500 мс для поезда до 1 000 мест |
-| Бронирование | < 1 с |
+| Бронирование | < 1 с (письмо не задерживает ответ — отправляется отдельно) |
+| Создание PDF-билета | < 1 с |
+| Письмо после брони | Приходит в течение 1 минуты (если почтовый сервер работает) |
 | Загрузка главной страницы | < 2 с на обычном интернете |
 | Одновременные пользователи | 100 без ухудшения скорости |
 
@@ -2699,6 +3266,8 @@ describe('segmentsOverlap', () => {
 | Данные не теряются | PostgreSQL + ежедневные бэкапы |
 | Ошибка одного запроса не роняет сервер | Единый `errorHandler`, процесс перезапускается хостингом |
 | Проверка работоспособности | `GET /api/health` → `{ "status": "ok", "db": "ok" }` |
+| Сбой почты не мешает бронированию | Письма через очередь `email_outbox` с повторными попытками (10.11) |
+| Письмо не уходит дважды | `FOR UPDATE SKIP LOCKED` при выборке писем |
 
 ### 20.3 Масштабируемость
 
@@ -2744,6 +3313,9 @@ describe('segmentsOverlap', () => {
 | Места и поезда не удаляются, только выключаются | Чтобы не сломать старые билеты |
 | Нет «временного удержания» места при выборе | Место бронируется только при подтверждении; при конфликте — понятное сообщение |
 | `EXCLUDE` требует расширения `btree_gist` | Есть во всех стандартных PostgreSQL |
+| Класс задаётся на весь вагон, а не на отдельное место | Так устроены настоящие поезда; проще цены и схема |
+| Схема вагона — только ряды с одинаковой раскладкой | Достаточно для эконом- и бизнес-вагонов; сложные вагоны (купе, разные ряды) не поддерживаются |
+| Письма отправляются с задержкой до ~10 секунд | Отправка идёт через очередь, чтобы не тормозить бронирование |
 
 ### 21.2 Риски
 
@@ -2758,6 +3330,9 @@ describe('segmentsOverlap', () => {
 | Медленный поиск при росте данных | Низкая | Среднее | Индексы, проверка через `EXPLAIN ANALYZE` |
 | Не успеть сделать всё | Средняя | Высокое | Сначала обязательные функции (план работ в 22.5), дополнительные — в конце |
 | Пассажир долго выбирает, а место уже заняли | Высокая | Низкое | Карта мест обновляется; при конфликте — сообщение и обновление |
+| Письма попадают в спам | Средняя | Низкое | Настоящий SMTP-сервис с настроенным доменом; вся информация о билете есть на сайте и в PDF |
+| Почтовый сервер недоступен | Средняя | Низкое | Очередь `email_outbox` + повторные попытки |
+| Кириллица в PDF отображается квадратиками | Средняя | Среднее | Подключить шрифт с кириллицей (Roboto, DejaVu Sans) в pdfkit |
 
 ---
 
@@ -2795,6 +3370,14 @@ describe('segmentsOverlap', () => {
 | **Полуоткрытый интервал [a, b)** | От `a` включительно до `b` не включая |
 | **Билет** | Право ехать на месте X рейса Y от остановки A до остановки B |
 | **CONFIRMED / CANCELLED** | Подтверждён / Отменён |
+| **Вагон** | Часть поезда с местами одного класса и одной схемой рядов |
+| **Класс места** | Эконом (`ECONOMY`) или Бизнес (`BUSINESS`); у каждого своя цена |
+| **Layout (схема ряда)** | Строка вида `AB_CD`: буквы — места, `_` — проход |
+| **SMTP** | Протокол отправки email |
+| **Очередь писем (outbox)** | Таблица, куда письмо сначала записывается, а потом отправляется отдельным процессом |
+| **PDF** | Формат документа для скачивания и печати |
+| **QR-код** | Квадратный штрихкод с номером билета |
+| **CSV** | Таблица в текстовом виде, открывается в Excel |
 
 ### 22.2 Список схем в документе
 
@@ -2811,6 +3394,11 @@ describe('segmentsOverlap', () => {
 | Отмена билета | 10.5 |
 | Статусы билета | 10.7 |
 | Изменения администратора | 10.8 |
+| Вагоны и классы поезда | 10.9 |
+| Добавление вагона и создание мест | 10.10 |
+| Схема вагона | 10.10, 17.3 |
+| Отправка писем через очередь | 10.11 |
+| PDF-билет | 10.12 |
 | Участки и пересечения | 11.1–11.2 |
 | Карта мест | 11.4 |
 | Регистрация | 12.1 |
@@ -2830,9 +3418,9 @@ describe('segmentsOverlap', () => {
 | Админ | `admin@traintix.local` / пароль из `.env` (`SEED_ADMIN_PASSWORD`) |
 | Пассажир для тестов | `anna@example.com` / `secret123` |
 | Станции | Prague (PRG), Brno (BRN), Vienna (VIE), Bratislava (BTS), Ostrava (OST) |
-| Поезда | T101 (3 вагона × 40 мест), T205 (2 вагона × 40 мест) |
+| Поезда | T101: вагон 1 Бизнес (8 рядов, `A_BC`), вагоны 2–3 Эконом (15 рядов, `AB_CD`); T205: вагон 1 Бизнес, вагон 2 Эконом |
 | Маршруты | T101: Prague → Brno → Vienna, 07:00; T205: Ostrava → Brno → Bratislava, 13:15 |
-| Цены | Для всех пар остановок |
+| Цены | Для всех пар остановок, отдельно для Эконом и Бизнес |
 | Рейсы | На 14 дней вперёд от сегодняшней даты |
 
 ### 22.4 Соответствие критериям приёмки PRD
@@ -2850,6 +3438,16 @@ describe('segmentsOverlap', () => {
 | Админ управляет данными для поездов | 9.6, 10.1, 17 | TC-21 |
 | Понятные сообщения при ошибках | Раздел 13 | TC-06, TC-10, TC-16 |
 
+**Дополнительные возможности (раздел 9 PRD)**
+
+| Возможность | Как выполнено | Тест |
+| --- | --- | --- |
+| Классы обслуживания (эконом, бизнес) | Класс у вагона, цены по классам (10.9) | TC-28 |
+| Схема расположения мест в вагоне | `rows_count` + `layout`, автоматическое создание мест, отрисовка (10.10) | TC-29, TC-30 |
+| Подтверждения по электронной почте | Очередь `email_outbox` + nodemailer (10.11) | TC-31, TC-32, TC-33 |
+| Скачивание билетов | PDF с QR-кодом (10.12) | TC-34, TC-35 |
+| Фильтры для поиска и управления бронированиями | Фильтры поиска, «Мои билеты», админки + CSV (10.13) | TC-36 – TC-39 |
+
 ### 22.5 План работ
 
 ```mermaid
@@ -2862,7 +3460,7 @@ flowchart LR
     S6 --> S7["7. Мои билеты и отмена"]
     S7 --> S8["8. Защита изменений админа,<br/>логи, аудит"]
     S8 --> S9["9. E2E-тесты, деплой, README"]
-    S9 --> S10["10. Дополнительно:<br/>email, PDF, карта вагона"]
+    S9 --> S10["10. Дополнительно:<br/>классы, схема вагона, письма, PDF, фильтры"]
 ```
 
 | Этап | Результат |
@@ -2876,4 +3474,4 @@ flowchart LR
 | 7. Билеты | Можно смотреть и отменять билеты |
 | 8. Защита и логи | Админ не может сломать проданные билеты, есть журнал |
 | 9. Финал | Все тесты зелёные, сайт развёрнут |
-| 10. Дополнительно | По желанию |
+| 10. Дополнительно | Классы мест и схема вагона, письма на email, PDF-билет, фильтры и выгрузка CSV |
