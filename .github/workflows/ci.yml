@@ -1,0 +1,41 @@
+# CI (раздел 18.8): установка → проверка типов → тесты с PostgreSQL → сборка
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: traintix
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/traintix
+      JWT_SECRET: ci-secret-ci-secret-ci-secret-ci-secret
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Server — install, typecheck, test
+        working-directory: server
+        run: |
+          npm ci
+          npx prisma generate
+          npm run typecheck
+          npm test
+      - name: Client — install, build
+        working-directory: client
+        run: |
+          npm ci
+          npm run build

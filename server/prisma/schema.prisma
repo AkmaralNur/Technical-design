@@ -1,0 +1,261 @@
+// TrainTix — схема базы данных (раздел 8 технического дизайна).
+// ВАЖНО: Prisma не умеет описывать ограничение EXCLUDE (защита от двойной продажи),
+// поэтому оно задано вручную в SQL-миграции prisma/migrations/*_init/migration.sql.
+// Применять миграции: npm run db:migrate  (prisma migrate deploy)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  PASSENGER
+  ADMIN
+
+  @@map("user_role")
+}
+
+enum TripStatus {
+  SCHEDULED
+  CANCELLED
+
+  @@map("trip_status")
+}
+
+enum TicketStatus {
+  CONFIRMED
+  CANCELLED
+
+  @@map("ticket_status")
+}
+
+enum SeatClass {
+  ECONOMY
+  BUSINESS
+
+  @@map("seat_class")
+}
+
+enum EmailStatus {
+  PENDING
+  SENT
+  FAILED
+
+  @@map("email_status")
+}
+
+model User {
+  id           BigInt        @id @default(autoincrement())
+  name         String        @db.VarChar(100)
+  email        String        @unique @db.VarChar(255)
+  passwordHash String        @map("password_hash") @db.VarChar(255)
+  role         UserRole      @default(PASSENGER)
+  createdAt    DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  tickets      Ticket[]
+  auditLogs    AuditLog[]
+  emails       EmailOutbox[]
+
+  @@map("users")
+}
+
+model Station {
+  id         BigInt      @id @default(autoincrement())
+  code       String      @unique @db.VarChar(10)
+  name       String      @db.VarChar(100)
+  city       String?     @db.VarChar(100)
+  timezone   String      @default("Europe/Prague") @db.VarChar(50)
+  isActive   Boolean     @default(true) @map("is_active")
+  routeStops RouteStop[]
+  tripStops  TripStop[]
+
+  @@map("stations")
+}
+
+model Train {
+  id        BigInt     @id @default(autoincrement())
+  number    String     @unique @db.VarChar(20)
+  name      String?    @db.VarChar(100)
+  isActive  Boolean    @default(true) @map("is_active")
+  carriages Carriage[]
+  seats     Seat[]
+  routes    Route[]
+  trips     Trip[]
+
+  @@map("trains")
+}
+
+model Carriage {
+  id         BigInt    @id @default(autoincrement())
+  trainId    BigInt    @map("train_id")
+  carriageNo Int       @map("carriage_no") @db.SmallInt
+  seatClass  SeatClass @default(ECONOMY) @map("seat_class")
+  rowsCount  Int       @map("rows_count") @db.SmallInt
+  layout     String    @db.VarChar(10)
+  isActive   Boolean   @default(true) @map("is_active")
+  train      Train     @relation(fields: [trainId], references: [id])
+  seats      Seat[]
+
+  @@unique([trainId, carriageNo])
+  @@map("carriages")
+}
+
+model Seat {
+  id         BigInt   @id @default(autoincrement())
+  trainId    BigInt   @map("train_id")
+  carriageNo Int      @map("carriage_no") @db.SmallInt
+  rowNo      Int      @map("row_no") @db.SmallInt
+  seatLetter String   @map("seat_letter") @db.Char(1)
+  seatLabel  String   @map("seat_label") @db.VarChar(10)
+  isActive   Boolean  @default(true) @map("is_active")
+  train      Train    @relation(fields: [trainId], references: [id])
+  carriage   Carriage @relation(fields: [trainId, carriageNo], references: [trainId, carriageNo])
+  tickets    Ticket[]
+
+  @@unique([trainId, carriageNo, seatLabel])
+  @@map("seats")
+}
+
+model Route {
+  id            BigInt      @id @default(autoincrement())
+  trainId       BigInt      @map("train_id")
+  name          String      @db.VarChar(150)
+  departureTime DateTime    @map("departure_time") @db.Time(6)
+  timezone      String      @default("Europe/Prague") @db.VarChar(50)
+  isActive      Boolean     @default(true) @map("is_active")
+  train         Train       @relation(fields: [trainId], references: [id])
+  stops         RouteStop[]
+  fares         Fare[]
+  trips         Trip[]
+
+  @@map("routes")
+}
+
+model RouteStop {
+  id                 BigInt  @id @default(autoincrement())
+  routeId            BigInt  @map("route_id")
+  stationId          BigInt  @map("station_id")
+  stopOrder          Int     @map("stop_order") @db.SmallInt
+  arrivalOffsetMin   Int?    @map("arrival_offset_min")
+  departureOffsetMin Int?    @map("departure_offset_min")
+  route              Route   @relation(fields: [routeId], references: [id], onDelete: Cascade)
+  station            Station @relation(fields: [stationId], references: [id])
+
+  @@unique([routeId, stopOrder])
+  @@unique([routeId, stationId])
+  @@map("route_stops")
+}
+
+model Fare {
+  id            BigInt    @id @default(autoincrement())
+  routeId       BigInt    @map("route_id")
+  fromStopOrder Int       @map("from_stop_order") @db.SmallInt
+  toStopOrder   Int       @map("to_stop_order") @db.SmallInt
+  seatClass     SeatClass @default(ECONOMY) @map("seat_class")
+  price         Decimal   @db.Decimal(10, 2)
+  currency      String    @default("EUR") @db.Char(3)
+  route         Route     @relation(fields: [routeId], references: [id], onDelete: Cascade)
+
+  @@unique([routeId, fromStopOrder, toStopOrder, seatClass])
+  @@map("fares")
+}
+
+model Trip {
+  id              BigInt     @id @default(autoincrement())
+  routeId         BigInt     @map("route_id")
+  trainId         BigInt     @map("train_id")
+  serviceDate     DateTime   @map("service_date") @db.Date
+  status          TripStatus @default(SCHEDULED)
+  scheduleChanged Boolean    @default(false) @map("schedule_changed")
+  cancelReason    String?    @map("cancel_reason") @db.VarChar(255)
+  route           Route      @relation(fields: [routeId], references: [id])
+  train           Train      @relation(fields: [trainId], references: [id])
+  stops           TripStop[]
+  tickets         Ticket[]
+
+  @@unique([routeId, serviceDate])
+  @@index([serviceDate, status], map: "idx_trips_date")
+  @@map("trips")
+}
+
+model TripStop {
+  tripId      BigInt    @map("trip_id")
+  stopOrder   Int       @map("stop_order") @db.SmallInt
+  stationId   BigInt    @map("station_id")
+  arrivalAt   DateTime? @map("arrival_at") @db.Timestamptz(6)
+  departureAt DateTime? @map("departure_at") @db.Timestamptz(6)
+  trip        Trip      @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  station     Station   @relation(fields: [stationId], references: [id])
+
+  @@id([tripId, stopOrder])
+  @@index([stationId, tripId], map: "idx_trip_stops_station")
+  @@map("trip_stops")
+}
+
+model Ticket {
+  id              BigInt        @id @default(autoincrement())
+  ticketNumber    String        @unique @map("ticket_number") @db.VarChar(20)
+  userId          BigInt        @map("user_id")
+  tripId          BigInt        @map("trip_id")
+  seatId          BigInt        @map("seat_id")
+  fromStopOrder   Int           @map("from_stop_order") @db.SmallInt
+  toStopOrder     Int           @map("to_stop_order") @db.SmallInt
+  price           Decimal       @db.Decimal(10, 2)
+  currency        String        @db.Char(3)
+  status          TicketStatus  @default(CONFIRMED)
+  passengerName   String        @map("passenger_name") @db.VarChar(100)
+  trainNumber     String        @map("train_number") @db.VarChar(20)
+  carriageNo      Int           @map("carriage_no") @db.SmallInt
+  seatLabel       String        @map("seat_label") @db.VarChar(10)
+  seatClass       SeatClass     @map("seat_class")
+  fromStationName String        @map("from_station_name") @db.VarChar(100)
+  toStationName   String        @map("to_station_name") @db.VarChar(100)
+  createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  cancelledAt     DateTime?     @map("cancelled_at") @db.Timestamptz(6)
+  cancelledBy     UserRole?     @map("cancelled_by")
+  user            User          @relation(fields: [userId], references: [id])
+  trip            Trip          @relation(fields: [tripId], references: [id])
+  seat            Seat          @relation(fields: [seatId], references: [id])
+  emails          EmailOutbox[]
+
+  @@index([tripId, seatId], map: "idx_tickets_trip_seat")
+  @@index([userId, createdAt(sort: Desc)], map: "idx_tickets_user")
+  @@index([status, createdAt(sort: Desc)], map: "idx_tickets_status")
+  @@map("tickets")
+}
+
+model AuditLog {
+  id        BigInt   @id @default(autoincrement())
+  userId    BigInt?  @map("user_id")
+  action    String   @db.VarChar(50)
+  entity    String   @db.VarChar(30)
+  entityId  BigInt?  @map("entity_id")
+  details   Json?
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  user      User?    @relation(fields: [userId], references: [id])
+
+  @@map("audit_log")
+}
+
+model EmailOutbox {
+  id            BigInt      @id @default(autoincrement())
+  type          String      @db.VarChar(30)
+  toEmail       String      @map("to_email") @db.VarChar(255)
+  userId        BigInt      @map("user_id")
+  ticketId      BigInt?     @map("ticket_id")
+  payload       Json
+  status        EmailStatus @default(PENDING)
+  attempts      Int         @default(0) @db.SmallInt
+  nextAttemptAt DateTime    @default(now()) @map("next_attempt_at") @db.Timestamptz(6)
+  lastError     String?     @map("last_error")
+  createdAt     DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  sentAt        DateTime?   @map("sent_at") @db.Timestamptz(6)
+  user          User        @relation(fields: [userId], references: [id])
+  ticket        Ticket?     @relation(fields: [ticketId], references: [id])
+
+  @@index([status, nextAttemptAt], map: "idx_outbox_pending")
+  @@map("email_outbox")
+}
